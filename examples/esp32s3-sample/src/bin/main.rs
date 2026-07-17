@@ -7,10 +7,13 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use cst9217::Cst9217;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
+use esp_hal::i2c::master::{Config, I2c};
+use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
 
@@ -40,6 +43,19 @@ async fn main(spawner: Spawner) -> ! {
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+
+    let I2C_FREQ_KHZ: u32 = 400;
+
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        Config::default().with_frequency(Rate::from_khz(I2C_FREQ_KHZ)),
+    )
+    .unwrap()
+    .with_sda(peripherals.GPIO15)
+    .with_scl(peripherals.GPIO14)
+    .into_async();
+
+    // let touch = Cst9217::new(i2c);
 
     info!("Embassy initialized!");
 
