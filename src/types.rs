@@ -1,3 +1,10 @@
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TouchConfig {
+    pub resolution_x: u16,
+    pub resolution_y: u16,
+}
+
 /// Represents a single touch on the screen.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Clone, PartialEq, Eq)]

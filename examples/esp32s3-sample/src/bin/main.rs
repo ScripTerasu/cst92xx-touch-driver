@@ -7,11 +7,13 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use cst9217::Cst9217;
+use cst9217::CST92xx;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
+use embedded_hal_async::i2c::I2c as AsyncI2c;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
@@ -33,8 +35,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    // generator version: 1.3.0
-    // generator parameters: --chip esp32s3 -o defmt -o zed -o unstable-hal -o embassy
+    let _ = spawner;
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -44,28 +45,40 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    let I2C_FREQ_KHZ: u32 = 400;
+    let i2c_freq_khz: u32 = 400;
 
-    let i2c = I2c::new(
+    let mut i2c = I2c::new(
         peripherals.I2C0,
-        Config::default().with_frequency(Rate::from_khz(I2C_FREQ_KHZ)),
+        Config::default().with_frequency(Rate::from_khz(i2c_freq_khz)),
     )
     .unwrap()
     .with_sda(peripherals.GPIO15)
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    // let touch = Cst9217::new(i2c);
+    let mut reset = Output::new(peripherals.GPIO40, Level::High, OutputConfig::default());
 
-    info!("Embassy initialized!");
+    reset.set_low();
+    Timer::after(Duration::from_millis(10)).await;
+    reset.set_high();
+    Timer::after(Duration::from_millis(50)).await;
 
-    // TODO: Spawn some tasks
-    let _ = spawner;
+    let mut driver = CST92xx::new(i2c);
+    driver.init().await;
+    // let mut temp_buf = [0u8; TOUCHPOINT_ENTRY_LEN];
+
+    // match driver.init(&mut i2c, &mut temp_buf).await {
+    //     Ok(()) => info!("CST9217 initialized"),
+    //     Err(err) => {
+    //         error!("Failed to initialize CST9217: {:?}", err);
+    //         loop {
+    //             Timer::after(Duration::from_secs(1)).await;
+    //         }
+    //     }
+    // }
 
     loop {
-        info!("Hello world!");
-        Timer::after(Duration::from_secs(1)).await;
+        info!("Touch controller running");
+        Timer::after(Duration::from_secs(60)).await;
     }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
 }
