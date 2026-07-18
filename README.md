@@ -6,6 +6,7 @@
 
 - `#![no_std]` friendly with optional `defmt` logging for instrumentation.
 - `CST92xx<I2C>` exposes `init`, `touches`, `sleep`, and `set_mode` so you can reproduce the SensorLib flow while staying async.
+- `BlockingCST92xx<I2C, Delay>` mirrors the async API for synchronous `embedded-hal` I²C + `DelayNs` providers.
 - The crate re-exports `RunMode` at the root, so you can import it alongside `CST92xx` without reaching into submodules.
 - Shared `registers.rs`, `types.rs`, and `error.rs` let you reuse constants or integrate the decoder directly into another driver.
 - Optional `defmt` feature makes `Point`, `TouchConfig`, `RunMode`, and `Error` printable for debugging.
@@ -29,6 +30,32 @@ for point in touches.iter().flatten() {
 
 // 3. Enter a low-power or debug mode when needed
 driver.set_mode(RunMode::LowPower).await?;
+```
+
+## Usage example (blocking)
+
+```rust
+use cst92xx::{BlockingCST92xx, RunMode};
+use embedded_hal::delay::DelayNs;
+use embedded_hal::i2c::I2c;
+
+fn scan<I2C, D, E>(i2c: I2C, delay: D) -> Result<(), cst92xx::Error<E>>
+where
+    I2C: I2c<Error = E>,
+    D: DelayNs,
+{
+    let mut driver = BlockingCST92xx::new(i2c, delay);
+
+    driver.init()?;
+
+    let touches = driver.touches()?;
+    for point in touches.iter().flatten() {
+        // handle point
+    }
+
+    driver.set_mode(RunMode::LowPower)?;
+    Ok(())
+}
 ```
 
 - `touches()` reads the `REG_READ` report and returns an array, filtering inactive slots automatically.
@@ -82,7 +109,7 @@ Run the usual tooling before deploying to hardware.
 
 ## Hardware notes
 
-This driver has been tested with the Waveshare ESP32-S3 Touch AMOLED 1.75C module: https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C. It exposes a CST9217 controller and communicates over I²C. The `TOUCH_POINT` registers return coordinate data packed into 8-byte entries, and after you read a touch report the driver clears the status register so the controller can detect the next frame.
+This driver has been tested with the [Waveshare ESP32-S3 Touch AMOLED 1.75C module](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C). It exposes a CST9217 controller and communicates over I²C. The `TOUCH_POINT` registers return coordinate data packed into 8-byte entries, and after you read a touch report the driver clears the status register so the controller can detect the next frame.
 
 ### Wiring (ESP32-S3)
 
@@ -96,5 +123,5 @@ This driver has been tested with the Waveshare ESP32-S3 Touch AMOLED 1.75C modul
 
 ## References
 
-- SensorLib `TouchDrvCST92xx.cpp` by Lewis He: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp
-- SensorLib `TouchDrvCST92xx.hpp` by Lewis He: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp
+- [SensorLib `TouchDrvCST92xx.cpp`](https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp) by Lewis He
+- [SensorLib `TouchDrvCST92xx.hpp`](https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp) by Lewis He
