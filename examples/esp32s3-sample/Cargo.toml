@@ -9,9 +9,11 @@ name = "esp32s3-sample"
 path = "./src/bin/main.rs"
 
 [dependencies]
+cst9217 = { path = "../..", features = ["defmt"] }
 esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
 
 esp-rtos = { version = "0.3.0", features = ["defmt", "embassy", "esp32s3"] }
+
 
 defmt                  = "1.0.1"
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
