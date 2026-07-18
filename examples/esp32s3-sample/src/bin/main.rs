@@ -11,10 +11,8 @@ use cst9217::CST92xx;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-use embedded_hal_async::i2c::I2c as AsyncI2c;
 use esp_hal::Async;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
@@ -48,7 +46,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let i2c_freq_khz: u32 = 400;
 
-    let mut i2c = I2c::new(
+    let i2c = I2c::new(
         peripherals.I2C0,
         Config::default().with_frequency(Rate::from_khz(i2c_freq_khz)),
     )
@@ -57,28 +55,8 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    // let mut reset = Output::new(peripherals.GPIO40, Level::High, OutputConfig::default());
-
-    // reset.set_low();
-    // Timer::after(Duration::from_millis(10)).await;
-    // reset.set_high();
-    // Timer::after(Duration::from_millis(50)).await;
-
-    let mut driver = CST92xx::new(i2c);
-    spawner.spawn(procesar_toques(driver).unwrap());
-
-    // driver.init().await;
-    // let mut temp_buf = [0u8; TOUCHPOINT_ENTRY_LEN];
-
-    // match driver.init(&mut i2c, &mut temp_buf).await {
-    //     Ok(()) => info!("CST9217 initialized"),
-    //     Err(err) => {
-    //         error!("Failed to initialize CST9217: {:?}", err);
-    //         loop {
-    //             Timer::after(Duration::from_secs(1)).await;
-    //         }
-    //     }
-    // }
+    let driver = CST92xx::new(i2c);
+    spawner.spawn(touch_task(driver).unwrap());
 
     loop {
         info!("Touch controller running");
@@ -87,39 +65,32 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 #[embassy_executor::task]
-async fn procesar_toques(mut touch_driver: CST92xx<I2c<'static, Async>>) {
-    // 1. Inicializar el driver al arrancar la tarea
+async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>>) {
+    // 1. Initialize the driver at task startup
     if let Err(e) = touch_driver.init().await {
-        error!("Fallo al inicializar el panel táctil: {:?}", e);
+        error!("Failed to initialize touch panel: {:?}", e);
         return;
     }
 
-    // let mut touch_int = Input::new(peripherals.GPIO4, Pull::Up);
-
     loop {
-        // touch_int.wait_for_falling_edge().await;
-
-        // 2. Leer los puntos de forma asíncrona
         match touch_driver.touches().await {
-            Ok(puntos) => {
-                // `flatten()` filtra los `None` y desenvuelve los `Some(Point)`
-                // en una sola operación ultra eficiente que el compilador optimiza a nivel de registros
-                for punto in puntos.iter().flatten() {
+            Ok(points) => {
+                // `flatten()` filters out `None` and unwraps `Some(Point)` in one pass
+                for point in points.iter().flatten() {
                     info!(
-                        "Dedo detectado -> ID: {}, X: {}, Y: {}",
-                        punto.track_id, punto.x, punto.y
+                        "Touch detected -> ID: {}, X: {}, Y: {}",
+                        point.track_id, point.x, point.y
                     );
 
-                    // Aquí envías las coordenadas a tu interfaz gráfica (ej. LVGL o slint)
-                    // o ejecutas tu lógica de gestos
+                    // Send coordinates to your GUI (LVGL, Slint, etc.) or gesture logic
                 }
             }
             Err(_e) => {
-                error!("Error de comunicación en el bus I2C");
+                error!("I2C communication error");
             }
         }
 
-        // 3. Frecuencia de muestreo (ej. cada 15ms equivale a unos ~66Hz, ideal para táctil)
+        // 3. Sampling frequency (~66Hz with a 15ms delay keeps it smooth)
         Timer::after_millis(15).await;
     }
 }

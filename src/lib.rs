@@ -3,15 +3,19 @@
 //! Basic driver for the CST92xx touch screen that supports both blocking and async I2C access.
 
 pub mod error;
+pub mod mode;
 pub mod registers;
 pub mod types;
 use embassy_time::Timer;
 pub use error::Error;
-pub use registers::{
-    CST92XX_ACK, CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM, REG_READ,
-};
 pub use types::Point;
 
+use crate::mode::RunMode;
+use crate::registers::{
+    CST92XX_ACK, CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM,
+    REG_BASE_LINE_MODE, REG_DEBUG_MODE, REG_DIFF_MODE, REG_FACTORY_MODE, REG_LOW_POWER_MODE,
+    REG_NORMAL_MODE, REG_RAW_MODE, REG_READ, REG_SLEEP_MODE,
+};
 use crate::types::TouchConfig;
 /// Async CST92xx driver.
 pub struct CST92xx<I2C> {
@@ -49,19 +53,17 @@ where
         Timer::after_millis(30).await;
 
         let mut buffer = [0u8; 8];
-        self.write_buf(&[0xD1, 0x01]).await?;
+        self.write(&[0xD1, 0x01]).await?;
         Timer::after_millis(10).await;
 
-        self.write_then_read(&[0xD1, 0xFC], &mut buffer[..4])
-            .await?;
+        self.write_read(&[0xD1, 0xFC], &mut buffer[..4]).await?;
 
         let check_code = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
 
         #[cfg(feature = "defmt")]
         defmt::info!("Chip checkcode: {=u32:#010X}", check_code);
 
-        self.write_then_read(&[0xD1, 0xF8], &mut buffer[..4])
-            .await?;
+        self.write_read(&[0xD1, 0xF8], &mut buffer[..4]).await?;
         self.config.resolution_x = u16::from_le_bytes([buffer[0], buffer[1]]);
         self.config.resolution_y = u16::from_le_bytes([buffer[2], buffer[3]]);
 
@@ -72,8 +74,7 @@ where
             self.config.resolution_y
         );
 
-        self.write_then_read(&[0xD2, 0x04], &mut buffer[..4])
-            .await?;
+        self.write_read(&[0xD2, 0x04], &mut buffer[..4]).await?;
         self.chip_type =
             (u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) >> 16) as u16;
 
@@ -86,8 +87,7 @@ where
             _project_id
         );
 
-        self.write_then_read(&[0xD2, 0x08], &mut buffer[..8])
-            .await?;
+        self.write_read(&[0xD2, 0x08], &mut buffer[..8]).await?;
         let fw_version = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
 
         let _checksum = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
@@ -123,6 +123,17 @@ where
         Ok(())
     }
 
+    pub async fn sleep(&mut self) -> Result<(), Error<E>> {
+        // Enter debug/command mode.
+        self.set_mode(RunMode::DebugInfo).await?;
+
+        // Send sleep command.
+        let buffer = REG_SLEEP_MODE.to_be_bytes();
+        self.write(&buffer).await?;
+
+        Ok(())
+    }
+
     pub fn model_name(&self) -> &str {
         match self.chip_type {
             CST9220_CHIP_ID => "CST9220",
@@ -132,20 +143,165 @@ where
         }
     }
 
-    async fn write_buf(&mut self, buf: &[u8]) -> Result<(), Error<E>> {
+    pub async fn set_mode(&mut self, mode: RunMode) -> Result<(), Error<E>> {
+        let mut ready = false;
+        let mut read_buffer = [0u8; 4];
+
+        for _ in 0..3 {
+            if self.write(&[0xD1, 0x1E]).await.is_err() {
+                Timer::after_millis(200).await;
+                continue;
+            }
+            if self.write(&[0xD1, 0x1E]).await.is_err() {
+                Timer::after_millis(200).await;
+                continue;
+            }
+            if self
+                .write_read(&[0x00, 0x02], &mut read_buffer)
+                .await
+                .is_err()
+            {
+                Timer::after_millis(200).await;
+                continue;
+            }
+            if read_buffer[1] == 0x1E {
+                ready = true;
+                break;
+            }
+        }
+
+        if !ready {
+            #[cfg(feature = "defmt")]
+            defmt::debug!("mode handshake failed");
+            return Err(Error::NotReady);
+        }
+
+        #[cfg(feature = "defmt")]
+        defmt::debug!("set_work_mode: {:?}", mode);
+
+        let mode_bytes = match mode {
+            RunMode::Normal => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> NORMAL");
+                REG_NORMAL_MODE.to_be_bytes()
+            }
+            RunMode::LowPower => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> LOW_POWER");
+                REG_LOW_POWER_MODE.to_be_bytes()
+            }
+            RunMode::DeepSleep => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> DEEP_SLEEP");
+                REG_SLEEP_MODE.to_be_bytes()
+            }
+            RunMode::Wakeup => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> WAKEUP");
+                REG_NORMAL_MODE.to_be_bytes()
+            }
+            RunMode::DebugDiff => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> DEBUG_DIFF");
+                REG_DIFF_MODE.to_be_bytes()
+            }
+            RunMode::DebugRawData => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> DEBUG_RAWDATA");
+                REG_RAW_MODE.to_be_bytes()
+            }
+            RunMode::Factory => self.prepare_factory_mode(&mut read_buffer).await?,
+            RunMode::DebugInfo => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> DEBUG_INFO");
+                REG_DEBUG_MODE.to_be_bytes()
+            }
+            RunMode::UpdateFirmware => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> UPDATE_FIRMWARE");
+                [0xD1, 0x08]
+            }
+            RunMode::FactoryHighDrv => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> FACTORY_HIGH_DRV");
+                [0xD1, 0x10]
+            }
+            RunMode::FactoryLowDrv => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> FACTORY_LOW_DRV");
+                [0xD1, 0x11]
+            }
+            RunMode::FactoryShort => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> FACTORY_SHORT");
+                [0xD1, 0x12]
+            }
+            RunMode::LpScan => {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("mode -> LP_SCAN");
+                REG_BASE_LINE_MODE.to_be_bytes()
+            }
+        };
+
+        let mode_cmd = mode_bytes[1];
+        self.write(&mode_bytes).await?;
+        let mut status = [0u8; 2];
+        self.write_read(&[0x00, 0x02], &mut status).await?;
+        if status[1] != mode_cmd {
+            #[cfg(feature = "defmt")]
+            defmt::error!(
+                "set_mode: read 0x0002 responded with 0x{:02X}, expected 0x{:02X}",
+                status[1],
+                mode_cmd
+            );
+            return Err(Error::NotReady);
+        }
+        Timer::after_millis(10).await;
+        Ok(())
+    }
+
+    async fn prepare_factory_mode(
+        &mut self,
+        read_buffer: &mut [u8; 4],
+    ) -> Result<[u8; 2], Error<E>> {
+        for _ in 0..10 {
+            let reg_bytes = REG_FACTORY_MODE.to_be_bytes();
+            if self.write(&reg_bytes).await.is_err() {
+                Timer::after_millis(1).await;
+                #[cfg(feature = "defmt")]
+                defmt::debug!("factory mode write failed");
+                continue;
+            }
+            Timer::after_millis(10).await;
+            if self
+                .write_read(&[0x00, 0x09], &mut read_buffer[..1])
+                .await
+                .is_err()
+            {
+                Timer::after_millis(1).await;
+                #[cfg(feature = "defmt")]
+                defmt::debug!("factory mode status read failed");
+                continue;
+            }
+            if read_buffer[0] == 0x14 {
+                #[cfg(feature = "defmt")]
+                defmt::debug!("factory mode ready");
+                return Ok([0xD1, 0x19]);
+            }
+        }
+        Err(Error::NotReady)
+    }
+
+    async fn write(&mut self, write: &[u8]) -> Result<(), Error<E>> {
         self.i2c
-            .write(CST92XX_SLAVE_ADDRESS, buf)
+            .write(CST92XX_SLAVE_ADDRESS, write)
             .await
             .map_err(Error::I2C)
     }
 
-    async fn write_then_read(
-        &mut self,
-        write_buf: &[u8],
-        read_buf: &mut [u8],
-    ) -> Result<(), Error<E>> {
+    async fn write_read(&mut self, write: &[u8], read: &mut [u8]) -> Result<(), Error<E>> {
         self.i2c
-            .write_read(CST92XX_SLAVE_ADDRESS, write_buf, read_buf)
+            .write_read(CST92XX_SLAVE_ADDRESS, write, read)
             .await
             .map_err(Error::I2C)
     }
@@ -157,7 +313,7 @@ where
         let reg_bytes = REG_READ.to_be_bytes();
 
         // El bus I2C ahora solo transfiere 15 bytes en lugar de 30. ¡Mucho más rápido!
-        self.write_then_read(&reg_bytes, &mut buffer).await?;
+        self.write_read(&reg_bytes, &mut buffer).await?;
 
         if !buffer.iter().any(|&x| x != 0) {
             return Ok(points);
@@ -167,7 +323,7 @@ where
         write_buffer[0] = reg_bytes[0];
         write_buffer[1] = reg_bytes[1];
         write_buffer[2] = CST92XX_ACK;
-        self.write_buf(&write_buffer).await?;
+        self.write(&write_buffer).await?;
 
         if buffer[0] == CST92XX_ACK || buffer[0] == 0x00 {
             return Ok(points);
