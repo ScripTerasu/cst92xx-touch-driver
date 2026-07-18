@@ -2,11 +2,12 @@
 edition = "2024"
 name = "esp32s3-sample"
 version = "0.1.0"
-rust-version = "1.88"
-authors = ["Embedded Team <dev@example.com>"]
+authors = ["Sebastian Almendra"]
+license = "MIT"
+repository = "https://github.com/ScripTerasu/cst92xx-touch-driver"
 description = "Minimal ESP32-S3 demo wiring the CST92xx touch stack with async Embassy tasks."
+readme = "README.md"
 publish = false
-repository = "https://github.com/salmendradev/cst92xx"
 
 [[bin]]
 name = "esp32s3-sample"
