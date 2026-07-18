@@ -5,7 +5,7 @@ This subproject (`examples/esp32s3-sample`) started from the `esp-generate` temp
 ## What’s inside?
 
 - `Cargo.toml`: defines the `esp32s3-sample` binary and pulls in `esp-hal`, `esp-rtos`, `embassy`, `defmt`, and the supporting ecosystem crates.
-- `src/bin/main.rs`: starts the RTOS, spins up the CST92xx driver task, and launches a maintenance task that issues timed commands (reset/mode changes) while the touch task logs coordinates.
+- `src/bin/main.rs`: starts the RTOS, drives the CST92xx driver task (touch polling + maintenance commands), and logs coordinates via `defmt` so you can follow the same flow as described in the driver README.
 - `.cargo/`, `.clippy.toml`, `rust-toolchain.toml`, and `build.rs`: boilerplate from `esp-generate` to pin the toolchain and lint rules.
 
 ## How to run it
