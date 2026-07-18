@@ -113,7 +113,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cst9217"
+name = "cst92xx"
 version = "0.1.0"
 dependencies = [
  "defmt 1.1.1",
@@ -878,7 +878,7 @@ name = "esp32s3-sample"
 version = "0.1.0"
 dependencies = [
  "critical-section",
- "cst9217",
+ "cst92xx",
  "defmt 1.1.1",
  "embassy-executor",
  "embassy-time",
