@@ -8,6 +8,7 @@ pub mod registers;
 pub mod types;
 use embassy_time::Timer;
 pub use error::Error;
+pub use mode::RunMode;
 pub use types::Point;
 
 use crate::mode::RunMode;

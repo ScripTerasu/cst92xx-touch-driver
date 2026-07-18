@@ -1,49 +1,35 @@
 # CST92xx Touch Controller Driver
 
-`cst92xx` is a portable driver for the CST92xx controllers (CST9217/CST9220) used on small AMOLED touch panels. It exposes blocking and async entry points, shared register/constants, and no-std-friendly helper types so you can plug it into any embedded project with `embedded-hal`.
+`cst92xx` is a portable async driver for the CST92xx controllers (CST9217/CST9220) used on small AMOLED touch panels. It exposes no-std-friendly helpers, shared register/constants, and the `RunMode` enum so you can plug it into any embedded project built on `embedded-hal_async`.
 
 ## Features
 
-- `#![no_std]` friendly, re-exported `Point` type, and rich error handling via `Error<E>`.
-- Blocking (`Cst9217Blocking<I2C>`) and async (`Cst9217<I2C>`) entry points that target the same register map.
-- Shared `registers.rs`, `types.rs`, and `error.rs` so you can reuse constants or integrate the decoder into another driver.
-- Optional `defmt` feature for formatted logging of touch events (the `Point`/`Error` types derive `defmt::Format`).
+- `#![no_std]` friendly with optional `defmt` logging for instrumentation.
+- `CST92xx<I2C>` exposes `init`, `touches`, `sleep`, and `set_mode` so you can reproduce the SensorLib flow while staying async.
+- The crate re-exports `RunMode` at the root, so you can import it alongside `CST92xx` without reaching into submodules.
+- Shared `registers.rs`, `types.rs`, and `error.rs` let you reuse constants or integrate the decoder directly into another driver.
+- Optional `defmt` feature makes `Point`, `TouchConfig`, `RunMode`, and `Error` printable for debugging.
 
-## Usage
-
-### Blocking
-
-```rust
-use cst92xx::{Cst9217Blocking, Error, Point};
-use embedded_hal::blocking::i2c::I2c;
-
-let mut touch = Cst9217Blocking::default();
-let mut i2c = /* your I2C peripheral */;
-touch.init(&mut i2c)?;
-if let Some(point) = touch.get_touch(&mut i2c)? {
-    // handle single point
-}
-```
-
-The blocking helpers expect an `embedded-hal` I²C implementation (`Error = E`). When you need all touch points, use `get_multi_touch`, which returns a `heapless::Vec<Point, { MAX_FINGER_NUM as usize }>`.
-
-### Async
+## Usage (async)
 
 ```rust
-use cst92xx::{Cst9217, TOUCHPOINT_ENTRY_LEN};
+use cst92xx::{CST92xx, Point, RunMode};
 use embedded_hal_async::i2c::I2c;
 
-let mut driver = Cst9217::default();
-let mut temp_buf = [0u8; TOUCHPOINT_ENTRY_LEN];
-driver.init(&mut i2c, &mut temp_buf).await?;
-if let Some(point) = driver.get_touch(&mut i2c, &mut temp_buf).await? {
-    // handle point
+let mut driver = CST92xx::new(i2c);
+driver.init().await?;
+let touches = driver.touches().await?;
+for point in touches.iter().flatten() {
+    // handle Point
 }
+let _ = driver.set_mode(RunMode::LowPower).await;
 ```
 
-Async helpers require `embedded-hal-async` and a temporary buffer with at least `TOUCHPOINT_ENTRY_LEN` bytes for single-point reads. For multi-touch you'll need `TOUCHPOINT_ENTRY_LEN * (MAX_FINGER_NUM as usize)` bytes so the buffer can hold every contact.
+- `touches()` returns an array of up to `MAX_FINGER_NUM` points and filters out the IDs that are not active.
+- `sleep()` and `set_mode()` mirror the SensorLib behavior for entering debug or factory states.
+- `RunMode` encodes the same register values that the original driver wrote to `D1`/`D2`.
 
-Call `driver.get_model_name(&mut i2c)` (and the async variant that takes a temporary buffer) to read `REG_CHIP_INFO` and get a friendly name for the detected controller. If you already have the raw chip ID, `model_name_from_chip_id(chip_id)` maps it to "CST9217", "CST9220", or "UNKNOWN". When the optional `defmt` feature is enabled, the driver also logs the four bytes returned by `REG_CHIP_INFO` (alongside the decoded chip ID) so you can inspect the bootloader response for diagnostics.
+Async helpers require `embedded-hal-async`. You can read the friendly product name via `driver.get_model_name()` (or the helper `model_name_from_chip_id`). When `defmt` is enabled, the driver also logs the raw `REG_CHIP_INFO` bytes for diagnostics.
 
 ## Constants
 
@@ -66,6 +52,9 @@ Call `driver.get_model_name(&mut i2c)` (and the async variant that takes a tempo
 ```rust
 pub enum Error<E> {
     UnexpectedChipId, // device did not present a supported identifier
+    InvalidFirmware,
+    InvalidCheckCode,
+    InvalidChipType(u16),
     I2C(E),           // pass-through I²C error
     NotReady,         // queried before the device had new data
 }
@@ -73,7 +62,7 @@ pub enum Error<E> {
 
 ## Optional `defmt` feature
 
-Enable the `defmt` feature if you want `Point` and `Error` to derive `defmt::Format` for logging:
+Enable the `defmt` feature if you want the helper types and log statements to derive `defmt::Format`:
 
 ```toml
 [dependencies]
@@ -85,13 +74,21 @@ cst92xx = { version = "0.1", features = ["defmt"] }
 - `cargo fmt`
 - `cargo check`
 
-You can run the standard tooling to ensure the crate compiles before running it on hardware.
+Run the usual tooling before deploying to hardware.
 
 ## Hardware notes
 
-CST9217 uses a 1.75" AMOLED panel and communicates over I²C. The `TOUCH_POINT` registers return coordinate data packed into 8-byte entries. After you read a touch report, the driver clears the status register to let the controller detect the next frame.
+This driver has been tested with the Waveshare ESP32-S3 Touch AMOLED 1.75C module: https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C. It exposes a CST9217 controller and communicates over I²C. The `TOUCH_POINT` registers return coordinate data packed into 8-byte entries, and after you read a touch report the driver clears the status register so the controller can detect the next frame.
 
-> **TODO:** Once you validate the hardware, adjust `decode_point` or constants to match the exact report format (e.g., buffer layout, number of bytes per finger) if it differs from the initial assumptions.
+### Wiring (ESP32-S3)
+
+- I²C SDA → GPIO15
+- I²C SCL → GPIO14
+- IRQ (touch interrupt) → GPIO40
+- RESET / RST pin → GPIO11 (assert low to reset)
+- Power the module with 3.3 V and keep the touch controller powered before releasing reset.
+
+> **TODO:** Once you validate the hardware, adjust `decode_point` or constants to match the exact report format (e.g., buffer layout, number of bytes per finger).
 
 ## References
 
