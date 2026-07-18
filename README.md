@@ -25,43 +25,49 @@ if let Some(point) = touch.get_touch(&mut i2c)? {
 }
 ```
 
-The blocking helpers expect an `embedded-hal` I²C implementation (`Error = E`). When you need all touch points, use `get_multi_touch`, which returns a `heapless::Vec<Point, MAX_NUM_TOUCHPOINTS>`.
+The blocking helpers expect an `embedded-hal` I²C implementation (`Error = E`). When you need all touch points, use `get_multi_touch`, which returns a `heapless::Vec<Point, { MAX_FINGER_NUM as usize }>`.
 
 ### Async
 
 ```rust
-use cst9217::{Cst9217, GET_TOUCH_BUF_SIZE};
+use cst9217::{Cst9217, TOUCHPOINT_ENTRY_LEN};
 use embedded_hal_async::i2c::I2c;
 
 let mut driver = Cst9217::default();
-let mut temp_buf = [0u8; GET_TOUCH_BUF_SIZE];
+let mut temp_buf = [0u8; TOUCHPOINT_ENTRY_LEN];
 driver.init(&mut i2c, &mut temp_buf).await?;
 if let Some(point) = driver.get_touch(&mut i2c, &mut temp_buf).await? {
     // handle point
 }
 ```
 
-Async helpers require `embedded-hal-async` and a temporary buffer with at least `GET_TOUCH_BUF_SIZE` bytes for single-point reads. For multi-touch, allocate `GET_MULTITOUCH_BUF_SIZE` bytes.
+Async helpers require `embedded-hal-async` and a temporary buffer with at least `TOUCHPOINT_ENTRY_LEN` bytes for single-point reads. For multi-touch you'll need `TOUCHPOINT_ENTRY_LEN * (MAX_FINGER_NUM as usize)` bytes so the buffer can hold every contact.
+
+Call `driver.get_model_name(&mut i2c)` (and the async variant that takes a temporary buffer) to read `REG_CHIP_INFO` and get a friendly name for the detected controller. If you already have the raw chip ID, `model_name_from_chip_id(chip_id)` maps it to "CST9217", "CST9220", or "UNKNOWN". When the optional `defmt` feature is enabled, the driver also logs the four bytes returned by `REG_CHIP_INFO` (alongside the decoded chip ID) so you can inspect the bootloader response for diagnostics.
 
 ## Constants
 
 | Name | Description |
 | --- | --- |
-| `CST9217_COMMAND_REG` | Register used to enter command mode. |
-| `CST9217_TOUCHPOINT_STATUS_REG` | Status register that reports readiness and touch count. |
-| `CST9217_TOUCHPOINT_1_REG` | Start of the first touchpoint data block. |
-| `GET_TOUCH_BUF_SIZE` | Minimum buffer length for reading one point. |
-| `GET_MULTITOUCH_BUF_SIZE` | Buffer length for reading up to `MAX_NUM_TOUCHPOINTS` points. |
-| `MAX_NUM_TOUCHPOINTS` | Maximum simultaneous contacts (derived from datasheet). |
-| `TOUCHPOINT_ENTRY_LEN` | Bytes per touch point. |
+| `CST9220_CHIP_ID` | Chip ID reported by CST9220 parts. |
+| `CST9217_CHIP_ID` | Chip ID reported by the CST9217 controller. |
+| `CST92XX_SLAVE_ADDRESS` | Default I²C address (0x5A). |
+| `CST92XX_BOOT_ADDRESS` | Alias used when the controller is in bootloader mode. |
+| `CST92XX_ACK` | Value returned by `REG_READ` when the controller is awake. |
+| `CST92XX_MEM_SIZE` | Size of the controller's flash (≈31 KB). |
+| `REG_READ` | Diagnostic register used to verify that the controller is responding. |
+| `REG_CHIP_INFO` | Returns the project and chip identifiers painted during the bootloader handshake. |
+| `MAX_FINGER_NUM` | Maximum simultaneous contacts supported by the controller. |
+| `PROGRAM_PAGE_SIZE` | Bootloader/program page size (128 bytes). |
+| `TOUCHPOINT_ENTRY_LEN` | Bytes per touch point report. |
 
 ## Errors
 
 ```rust
 pub enum Error<E> {
-    UnexpectedProductId, // device is not a CST9217
-    I2C(E),              // pass-through I²C error
-    NotReady,            // queried before the device had new data
+    UnexpectedChipId, // device did not present a supported identifier
+    I2C(E),           // pass-through I²C error
+    NotReady,         // queried before the device had new data
 }
 ```
 

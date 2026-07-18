@@ -1,10 +1,23 @@
-pub const CST9217_I2C_ADDR_BA: u8 = 0x5D;
-pub const CST9217_PRODUCT_ID_REG: u16 = 0x8140;
-pub const CST9217_TOUCHPOINT_STATUS_REG: u16 = 0x814E;
-pub const CST9217_TOUCHPOINT_1_REG: u16 = 0x814F;
-pub const CST9217_COMMAND_REG: u16 = 0x8040;
+pub const CST9220_CHIP_ID: u16 = 0x9220;
+pub const CST9217_CHIP_ID: u16 = 0x9217;
 
-pub const MAX_NUM_TOUCHPOINTS: usize = 5;
+pub const REG_READ: u16 = 0xD000;
+pub const REG_DEBUG_MODE: u16 = 0xD101;
+pub const REG_SLEEP_MODE: u16 = 0xD105;
+pub const REG_DIS_LOW_POWER_SCAN_MODE: u16 = 0xD106;
+pub const REG_NORMAL_MODE: u16 = 0xD109;
+pub const REG_RAW_MODE: u16 = 0xD10A;
+pub const REG_DIFF_MODE: u16 = 0xD10D;
+pub const REG_BASE_LINE_MODE: u16 = 0xD10E;
+pub const REG_LOW_POWER_MODE: u16 = 0xD10F;
+pub const REG_FACTORY_MODE: u16 = 0xD114;
+pub const REG_CHIP_INFO: u16 = 0xD101;
+
+pub const CST92XX_SLAVE_ADDRESS: u8 = 0x5A;
+pub const CST92XX_BOOT_ADDRESS: u8 = CST92XX_SLAVE_ADDRESS;
+pub const CST92XX_ACK: u8 = 0xAB;
+pub const CST92XX_MEM_SIZE: u32 = 0x007F80;
+
+pub const MAX_FINGER_NUM: u8 = 2;
+pub const PROGRAM_PAGE_SIZE: usize = 128;
 pub const TOUCHPOINT_ENTRY_LEN: usize = 8;
-pub const GET_TOUCH_BUF_SIZE: usize = TOUCHPOINT_ENTRY_LEN;
-pub const GET_MULTITOUCH_BUF_SIZE: usize = TOUCHPOINT_ENTRY_LEN * MAX_NUM_TOUCHPOINTS;
