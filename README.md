@@ -1,10 +1,10 @@
-# CST9217 Touch Controller Driver
+# CST92xx Touch Controller Driver
 
-Driver crate for the CST9217 capacitive touch controller used on the 1.75" AMOLED modules (e.g., the Waveshare TAH75A). It supplies both blocking and async I²C helpers, shared point/status types, and register/constant definitions so your no-std application can query finger coordinates safely.
+`cst92xx` is a portable driver for the CST92xx controllers (CST9217/CST9220) used on small AMOLED touch panels. It exposes blocking and async entry points, shared register/constants, and no-std-friendly helper types so you can plug it into any embedded project with `embedded-hal`.
 
 ## Features
 
-- no-std friendly, re-exported `Point` type, error handling via `Error<E>`.
+- `#![no_std]` friendly, re-exported `Point` type, and rich error handling via `Error<E>`.
 - Blocking (`Cst9217Blocking<I2C>`) and async (`Cst9217<I2C>`) entry points that target the same register map.
 - Shared `registers.rs`, `types.rs`, and `error.rs` so you can reuse constants or integrate the decoder into another driver.
 - Optional `defmt` feature for formatted logging of touch events (the `Point`/`Error` types derive `defmt::Format`).
@@ -14,7 +14,7 @@ Driver crate for the CST9217 capacitive touch controller used on the 1.75" AMOLE
 ### Blocking
 
 ```rust
-use cst9217::{Cst9217Blocking, Error, Point};
+use cst92xx::{Cst9217Blocking, Error, Point};
 use embedded_hal::blocking::i2c::I2c;
 
 let mut touch = Cst9217Blocking::default();
@@ -30,7 +30,7 @@ The blocking helpers expect an `embedded-hal` I²C implementation (`Error = E`).
 ### Async
 
 ```rust
-use cst9217::{Cst9217, TOUCHPOINT_ENTRY_LEN};
+use cst92xx::{Cst9217, TOUCHPOINT_ENTRY_LEN};
 use embedded_hal_async::i2c::I2c;
 
 let mut driver = Cst9217::default();
@@ -77,7 +77,7 @@ Enable the `defmt` feature if you want `Point` and `Error` to derive `defmt::For
 
 ```toml
 [dependencies]
-cst9217 = { version = "0.1", features = ["defmt"] }
+cst92xx = { version = "0.1", features = ["defmt"] }
 ```
 
 ## Development
@@ -92,3 +92,8 @@ You can run the standard tooling to ensure the crate compiles before running it 
 CST9217 uses a 1.75" AMOLED panel and communicates over I²C. The `TOUCH_POINT` registers return coordinate data packed into 8-byte entries. After you read a touch report, the driver clears the status register to let the controller detect the next frame.
 
 > **TODO:** Once you validate the hardware, adjust `decode_point` or constants to match the exact report format (e.g., buffer layout, number of bytes per finger) if it differs from the initial assumptions.
+
+## References
+
+- SensorLib `TouchDrvCST92xx.cpp` by Lewis He: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp
+- SensorLib `TouchDrvCST92xx.hpp` by Lewis He: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp

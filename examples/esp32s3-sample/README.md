@@ -32,18 +32,18 @@ This subproject (`examples/esp32s3-sample`) started from the `esp-generate` temp
 
 4. You can also monitor the serial port directly at 115200 bps using `minicom`, `picocom`, or `screen` if you need raw output.
 
-## Integrating the CST9217 driver
+## Integrating the CST92xx driver
 
-This template already shows the CST92xx/CST9217 flow:
+This template already shows the CST92xx flow:
 
 - `touch_task` initializes the driver and continuously logs the touch points returned by `touch_driver.touches()`.
 - `maintenance_task` talks to the same driver via an `embassy_sync::channel`, sending resets (and future `RunMode` commands) once per minute.
-- Keep `cst9217 = { path = "../..", features = ["defmt"] }` in `Cargo.toml` to reuse the driver crate from the workspace.
+- Keep `cst92xx = { path = "../..", features = ["defmt"] }` in `Cargo.toml` to reuse the driver crate from the workspace.
 
 Once you confirm the wiring (I²C on GPIO15/14, IRQ on GPIO40), you can copy/paste `touch_task` into `examples/esp32s3-touch` or extend it with your gesture logic.
 
 ## Need a different demo?
 
-If you prefer a more specialized touch example, try `examples/esp32s3-touch` in the repository root: it already resets the CST9217, reads touches, and logs coordinates through `defmt`.
+If you prefer a more specialized touch example, try `examples/esp32s3-touch` in the repository root: it already resets the CST92xx/CST9217 controller, reads touches, and logs coordinates through `defmt`.
 
 > Update this README whenever you change the build/flash workflow so it stays accurate for future flashes.
