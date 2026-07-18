@@ -1,13 +1,15 @@
 #![no_std]
 
-//! Basic driver for the CST9217 touch screen that supports both blocking and async I2C access.
+//! Basic driver for the CST92xx touch screen that supports both blocking and async I2C access.
 
 pub mod error;
 pub mod registers;
 pub mod types;
 use embassy_time::Timer;
 pub use error::Error;
-pub use registers::{CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID};
+pub use registers::{
+    CST92XX_ACK, CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM, REG_READ,
+};
 pub use types::Point;
 
 use crate::types::TouchConfig;
@@ -15,19 +17,18 @@ use crate::types::TouchConfig;
 pub struct CST92xx<I2C> {
     i2c: I2C,
     config: TouchConfig,
-    _chip_type: u16,
+    chip_type: u16,
 }
 
 impl<I2C, E> CST92xx<I2C>
 where
     I2C: embedded_hal_async::i2c::I2c<Error = E>,
 {
-    /// Create a driver using a custom I2C address.
     pub fn new(i2c: I2C) -> Self {
         Self {
             i2c,
             config: TouchConfig::default(),
-            _chip_type: 0,
+            chip_type: 0,
         }
     }
 
@@ -36,7 +37,7 @@ where
         self.get_attribute().await?;
 
         #[cfg(feature = "defmt")]
-        defmt::debug!("Touch type:{}", self.get_model_name());
+        defmt::debug!("Touch type:{}", self.model_name());
         Ok(())
     }
 
@@ -73,7 +74,7 @@ where
 
         self.write_then_read(&[0xD2, 0x04], &mut buffer[..4])
             .await?;
-        self._chip_type =
+        self.chip_type =
             (u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) >> 16) as u16;
 
         let _project_id = u32::from(u16::from_le_bytes([buffer[0], buffer[1]]));
@@ -81,7 +82,7 @@ where
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Chip type={=u16:#06X}, Project ID={=u32:#010X}",
-            self._chip_type,
+            self.chip_type,
             _project_id
         );
 
@@ -112,18 +113,18 @@ where
             return Err(Error::InvalidCheckCode);
         }
 
-        if self._chip_type != CST9217_CHIP_ID && self._chip_type != CST9220_CHIP_ID {
+        if self.chip_type != CST9217_CHIP_ID && self.chip_type != CST9220_CHIP_ID {
             #[cfg(feature = "defmt")]
-            defmt::error!("Unsupported chip type: {=u16:#06X}", self._chip_type);
+            defmt::error!("Unsupported chip type: {=u16:#06X}", self.chip_type);
 
-            return Err(Error::InvalidChipType(self._chip_type));
+            return Err(Error::InvalidChipType(self.chip_type));
         }
 
         Ok(())
     }
 
-    pub fn get_model_name(&self) -> &str {
-        match self._chip_type {
+    pub fn model_name(&self) -> &str {
+        match self.chip_type {
             CST9220_CHIP_ID => "CST9220",
             CST9217_CHIP_ID => "CST9217",
             // Agrega aquí los IDs específicos que maneje la librería original
@@ -149,139 +150,62 @@ where
             .map_err(Error::I2C)
     }
 
-    async fn write(&self, i2c: &mut I2C, register: u16, value: u8) -> Result<(), Error<E>> {
-        let register = register.to_be_bytes();
-        let cmd = [register[0], register[1], value];
-        i2c.write(CST92XX_SLAVE_ADDRESS, &cmd)
-            .await
-            .map_err(Error::I2C)
+    pub async fn touches(&mut self) -> Result<[Option<Point>; MAX_FINGER_NUM], Error<E>> {
+        // El buffer pasa a ser de 15 bytes automáticamente (2 * 5 + 5)
+        let mut buffer = [0u8; MAX_FINGER_NUM * 5 + 5];
+        let mut points: [Option<Point>; MAX_FINGER_NUM] = [None; MAX_FINGER_NUM];
+        let reg_bytes = REG_READ.to_be_bytes();
+
+        // El bus I2C ahora solo transfiere 15 bytes en lugar de 30. ¡Mucho más rápido!
+        self.write_then_read(&reg_bytes, &mut buffer).await?;
+
+        if !buffer.iter().any(|&x| x != 0) {
+            return Ok(points);
+        }
+
+        let mut write_buffer = [0u8; 3];
+        write_buffer[0] = reg_bytes[0];
+        write_buffer[1] = reg_bytes[1];
+        write_buffer[2] = CST92XX_ACK;
+        self.write_buf(&write_buffer).await?;
+
+        if buffer[0] == CST92XX_ACK || buffer[0] == 0x00 {
+            return Ok(points);
+        }
+        if buffer[6] != CST92XX_ACK {
+            return Ok(points);
+        }
+
+        if (buffer[4] & 0xF0) != 0 && (buffer[4] >> 7) == 0x01 {
+            return Ok(points);
+        }
+
+        // Limitamos el parseo al nuevo máximo configurado
+        let num_points = (buffer[5] & 0x7F) as usize;
+        if num_points > MAX_FINGER_NUM || num_points == 0 {
+            return Ok(points);
+        }
+
+        for i in 0..num_points {
+            let start_idx = (i * 5) + if i == 0 { 0 } else { 2 };
+            let pdat = &buffer[start_idx..start_idx + 4];
+
+            let id = pdat[0] >> 4;
+            let event = pdat[0] & 0x0F;
+
+            if event == 0x06 && (id as usize) < MAX_FINGER_NUM {
+                let x = ((pdat[1] as u16) << 4) | ((pdat[3] >> 4) as u16);
+                let y = ((pdat[2] as u16) << 4) | ((pdat[3] & 0x0F) as u16);
+
+                points[i] = Some(Point {
+                    track_id: id,
+                    x,
+                    y,
+                    area: 0,
+                });
+            }
+        }
+
+        Ok(points)
     }
-
-    async fn read(&self, i2c: &mut I2C, register: u16, buf: &mut [u8]) -> Result<(), Error<E>> {
-        i2c.write_read(CST92XX_SLAVE_ADDRESS, &register.to_be_bytes(), buf)
-            .await
-            .map_err(Error::I2C)
-    }
-    // Initialize the device (requires a temporary read buffer of at least 4 bytes).
-    // pub async fn init(&self, i2c: &mut I2C, buf: &mut [u8]) -> Result<(), Error<E>> {
-    //     self.write(i2c, CST9217_COMMAND_REG, 0).await?;
-
-    //     const LEN: usize = 4;
-    //     assert!(buf.len() >= LEN);
-    //     self.read(i2c, CST9217_PRODUCT_ID_REG, &mut buf[..LEN])
-    //         .await?;
-    //     match str::from_utf8(&buf[..LEN]) {
-    //         Ok(product_id) => {
-    //             if product_id != CST9217_EXPECTED_PRODUCT_ID {
-    //                 return Err(Error::UnexpectedProductId);
-    //             }
-    //         }
-    //         Err(_) => return Err(Error::UnexpectedProductId),
-    //     }
-
-    //     self.write(i2c, CST9217_TOUCHPOINT_STATUS_REG, 0).await?;
-    //     Ok(())
-    // }
-
-    // Read a single touch point (buffer must hold at least `TOUCHPOINT_ENTRY_LEN`).
-    // pub async fn get_touch(
-    //     &self,
-    //     i2c: &mut I2C,
-    //     buf: &mut [u8],
-    // ) -> Result<Option<Point>, Error<E>> {
-    //     let num_touch_points = self.get_num_touch_points(i2c, buf).await?;
-
-    //     let point = if num_touch_points > 0 {
-    //         assert!(
-    //             buf.len() >= TOUCHPOINT_ENTRY_LEN,
-    //             "Buffer too small, use GET_TOUCH_BUF_SIZE"
-    //         );
-    //         self.read(
-    //             i2c,
-    //             CST9217_TOUCHPOINT_1_REG,
-    //             &mut buf[..TOUCHPOINT_ENTRY_LEN],
-    //         )
-    //         .await?;
-    //         Some(decode_point(buf))
-    //     } else {
-    //         None
-    //     };
-
-    //     self.write(i2c, CST9217_TOUCHPOINT_STATUS_REG, 0).await?;
-    //     Ok(point)
-    // }
-
-    // /// Read multiple touch points (buffer must hold `num_touch_points * TOUCHPOINT_ENTRY_LEN`).
-    // pub async fn get_multi_touch(
-    //     &self,
-    //     i2c: &mut I2C,
-    //     buf: &mut [u8],
-    // ) -> Result<heapless::Vec<Point, MAX_NUM_TOUCHPOINTS>, Error<E>> {
-    //     let num_touch_points = self.get_num_touch_points(i2c, buf).await?;
-
-    //     let points = if num_touch_points > 0 {
-    //         assert!(num_touch_points <= MAX_NUM_TOUCHPOINTS);
-    //         let mut points = heapless::Vec::new();
-
-    //         let len: usize = num_touch_points * TOUCHPOINT_ENTRY_LEN;
-    //         assert!(
-    //             buf.len() >= len,
-    //             "Buffer too small, use GET_MULTITOUCH_BUF_SIZE"
-    //         );
-    //         self.read(i2c, CST9217_TOUCHPOINT_1_REG, &mut buf[..len])
-    //             .await?;
-
-    //         for n in 0..num_touch_points {
-    //             let start = n * TOUCHPOINT_ENTRY_LEN;
-    //             points
-    //                 .push(decode_point(&buf[start..start + TOUCHPOINT_ENTRY_LEN]))
-    //                 .ok();
-    //         }
-
-    //         points
-    //     } else {
-    //         heapless::Vec::new()
-    //     };
-
-    //     self.write(i2c, CST9217_TOUCHPOINT_STATUS_REG, 0).await?;
-    //     Ok(points)
-    // }
-
-    // async fn get_num_touch_points(&self, i2c: &mut I2C, buf: &mut [u8]) -> Result<usize, Error<E>> {
-    //     assert!(!buf.is_empty());
-    //     self.read(i2c, CST9217_TOUCHPOINT_STATUS_REG, &mut buf[..1])
-    //         .await?;
-
-    //     let status = buf[0];
-    //     let ready = (status & 0x80) > 0;
-    //     let num_touch_points = (status & 0x0F) as usize;
-
-    //     if ready {
-    //         Ok(num_touch_points)
-    //     } else {
-    //         Err(Error::NotReady)
-    //     }
-    // }
-
-    // async fn write(&self, i2c: &mut I2C, register: u16, value: u8) -> Result<(), Error<E>> {
-    //     let register = register.to_be_bytes();
-    //     let cmd = [register[0], register[1], value];
-    //     i2c.write(self.i2c_addr, &cmd).await.map_err(Error::I2C)
-    // }
-
-    // async fn read(&self, i2c: &mut I2C, register: u16, buf: &mut [u8]) -> Result<(), Error<E>> {
-    //     i2c.write_read(self.i2c_addr, &register.to_be_bytes(), buf)
-    //         .await
-    //         .map_err(Error::I2C)
-    // }
 }
-
-// fn decode_point(buf: &[u8]) -> Point {
-//     assert!(buf.len() >= TOUCHPOINT_ENTRY_LEN);
-//     Point {
-//         track_id: buf[0],
-//         x: u16::from_le_bytes([buf[1], buf[2]]),
-//         y: u16::from_le_bytes([buf[3], buf[4]]),
-//         area: u16::from_le_bytes([buf[5], buf[6]]),
-//     }
-// }

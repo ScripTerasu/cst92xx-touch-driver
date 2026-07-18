@@ -7,7 +7,7 @@ pub struct TouchConfig {
 
 /// Represents a single touch on the screen.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Point {
     /// The touchpoint number (zero based).
     pub track_id: u8,

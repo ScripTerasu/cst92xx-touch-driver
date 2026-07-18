@@ -12,6 +12,7 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c as AsyncI2c;
+use esp_hal::Async;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
@@ -56,15 +57,17 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    let mut reset = Output::new(peripherals.GPIO40, Level::High, OutputConfig::default());
+    // let mut reset = Output::new(peripherals.GPIO40, Level::High, OutputConfig::default());
 
-    reset.set_low();
-    Timer::after(Duration::from_millis(10)).await;
-    reset.set_high();
-    Timer::after(Duration::from_millis(50)).await;
+    // reset.set_low();
+    // Timer::after(Duration::from_millis(10)).await;
+    // reset.set_high();
+    // Timer::after(Duration::from_millis(50)).await;
 
     let mut driver = CST92xx::new(i2c);
-    driver.init().await;
+    spawner.spawn(procesar_toques(driver).unwrap());
+
+    // driver.init().await;
     // let mut temp_buf = [0u8; TOUCHPOINT_ENTRY_LEN];
 
     // match driver.init(&mut i2c, &mut temp_buf).await {
@@ -80,5 +83,43 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         info!("Touch controller running");
         Timer::after(Duration::from_secs(60)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn procesar_toques(mut touch_driver: CST92xx<I2c<'static, Async>>) {
+    // 1. Inicializar el driver al arrancar la tarea
+    if let Err(e) = touch_driver.init().await {
+        error!("Fallo al inicializar el panel táctil: {:?}", e);
+        return;
+    }
+
+    // let mut touch_int = Input::new(peripherals.GPIO4, Pull::Up);
+
+    loop {
+        // touch_int.wait_for_falling_edge().await;
+
+        // 2. Leer los puntos de forma asíncrona
+        match touch_driver.touches().await {
+            Ok(puntos) => {
+                // `flatten()` filtra los `None` y desenvuelve los `Some(Point)`
+                // en una sola operación ultra eficiente que el compilador optimiza a nivel de registros
+                for punto in puntos.iter().flatten() {
+                    info!(
+                        "Dedo detectado -> ID: {}, X: {}, Y: {}",
+                        punto.track_id, punto.x, punto.y
+                    );
+
+                    // Aquí envías las coordenadas a tu interfaz gráfica (ej. LVGL o slint)
+                    // o ejecutas tu lógica de gestos
+                }
+            }
+            Err(_e) => {
+                error!("Error de comunicación en el bus I2C");
+            }
+        }
+
+        // 3. Frecuencia de muestreo (ej. cada 15ms equivale a unos ~66Hz, ideal para táctil)
+        Timer::after_millis(15).await;
     }
 }
