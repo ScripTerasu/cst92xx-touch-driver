@@ -10,26 +10,30 @@
 - Shared `registers.rs`, `types.rs`, and `error.rs` let you reuse constants or integrate the decoder directly into another driver.
 - Optional `defmt` feature makes `Point`, `TouchConfig`, `RunMode`, and `Error` printable for debugging.
 
-## Usage (async)
+## Usage example (async)
 
 ```rust
-use cst92xx::{CST92xx, Point, RunMode};
+use cst92xx::{CST92xx, RunMode};
 use embedded_hal_async::i2c::I2c;
 
 let mut driver = CST92xx::new(i2c);
+
+// 1. Initialize the controller (reset + attribute read)
 driver.init().await?;
+
+// 2. Fetch all touch points (up to `MAX_FINGER_NUM` entries)
 let touches = driver.touches().await?;
 for point in touches.iter().flatten() {
-    // handle Point
+    // handle point
 }
-let _ = driver.set_mode(RunMode::LowPower).await;
+
+// 3. Enter a low-power or debug mode when needed
+driver.set_mode(RunMode::LowPower).await?;
 ```
 
-- `touches()` returns an array of up to `MAX_FINGER_NUM` points and filters out the IDs that are not active.
-- `sleep()` and `set_mode()` mirror the SensorLib behavior for entering debug or factory states.
-- `RunMode` encodes the same register values that the original driver wrote to `D1`/`D2`.
-
-Async helpers require `embedded-hal-async`. You can read the friendly product name via `driver.get_model_name()` (or the helper `model_name_from_chip_id`). When `defmt` is enabled, the driver also logs the raw `REG_CHIP_INFO` bytes for diagnostics.
+- `touches()` reads the `REG_READ` report and returns an array, filtering inactive slots automatically.
+- `sleep()` and `set_mode()` mirror SensorLib’s command sequence for switching run modes.
+- Use `driver.get_model_name()` (or `model_name_from_chip_id`) to log the controller identity; enabling `defmt` also reports the raw `REG_CHIP_INFO` bytes for diagnostics.
 
 ## Constants
 

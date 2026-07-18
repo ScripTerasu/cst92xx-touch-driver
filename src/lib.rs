@@ -11,7 +11,6 @@ pub use error::Error;
 pub use mode::RunMode;
 pub use types::Point;
 
-use crate::mode::RunMode;
 use crate::registers::{
     CST92XX_ACK, CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM,
     REG_BASE_LINE_MODE, REG_DEBUG_MODE, REG_DIFF_MODE, REG_FACTORY_MODE, REG_LOW_POWER_MODE,
@@ -37,6 +36,7 @@ where
         }
     }
 
+    /// Initialize the controller (reset + attribute read) and ensure the chip is supported.
     pub async fn init(&mut self) -> Result<(), Error<E>> {
         self.reset().await;
         self.get_attribute().await?;
@@ -46,10 +46,12 @@ where
         Ok(())
     }
 
+    /// Simple delay helper that mimics the hardware reset timing.
     pub async fn reset(&mut self) {
         Timer::after_millis(30).await;
     }
 
+    /// Read the controller metadata (checkcode, resolution, chip/version) and validate the chip.
     pub async fn get_attribute(&mut self) -> Result<(), Error<E>> {
         Timer::after_millis(30).await;
 
@@ -124,6 +126,7 @@ where
         Ok(())
     }
 
+    /// Request the controller to enter sleep via the ESP32-defined register sequence.
     pub async fn sleep(&mut self) -> Result<(), Error<E>> {
         // Enter debug/command mode.
         self.set_mode(RunMode::DebugInfo).await?;
@@ -135,6 +138,7 @@ where
         Ok(())
     }
 
+    /// Return a human-friendly model string derived from the cached chip ID.
     pub fn model_name(&self) -> &str {
         match self.chip_type {
             CST9220_CHIP_ID => "CST9220",
@@ -144,6 +148,7 @@ where
         }
     }
 
+    /// Switch to a controller run mode (normal, debug, factory, etc.).
     pub async fn set_mode(&mut self, mode: RunMode) -> Result<(), Error<E>> {
         let mut ready = false;
         let mut read_buffer = [0u8; 4];
@@ -261,6 +266,8 @@ where
         Ok(())
     }
 
+    /// Helper that polls the factory register until the controller is ready for factory mode commands.
+    /// Perform the repeated WR/READ sequence required to enter factory mode safely.
     async fn prepare_factory_mode(
         &mut self,
         read_buffer: &mut [u8; 4],
@@ -293,6 +300,7 @@ where
         Err(Error::NotReady)
     }
 
+    /// Write raw bytes (register + payload) to the controller.
     async fn write(&mut self, write: &[u8]) -> Result<(), Error<E>> {
         self.i2c
             .write(CST92XX_SLAVE_ADDRESS, write)
@@ -300,6 +308,7 @@ where
             .map_err(Error::I2C)
     }
 
+    /// Write bytes and then read back a response without leaving command mode.
     async fn write_read(&mut self, write: &[u8], read: &mut [u8]) -> Result<(), Error<E>> {
         self.i2c
             .write_read(CST92XX_SLAVE_ADDRESS, write, read)
@@ -307,6 +316,7 @@ where
             .map_err(Error::I2C)
     }
 
+    /// Read the latest touch report from `REG_READ` and translate it into `Point`s.
     pub async fn touches(&mut self) -> Result<[Option<Point>; MAX_FINGER_NUM], Error<E>> {
         // El buffer pasa a ser de 15 bytes automáticamente (2 * 5 + 5)
         let mut buffer = [0u8; MAX_FINGER_NUM * 5 + 5];
