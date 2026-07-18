@@ -6,8 +6,8 @@ authors = ["Sebastian Almendra"]
 license = "MIT"
 repository = "https://github.com/ScripTerasu/cst92xx-touch-driver"
 description = "Driver crate for CST92xx (CST9217 and CST9220) touch controllers with async and blocking embedded-hal support."
-keywords = ["touchscreen", "cst92xx", "cst9217", "cst9220", "embedded-hal", "embedded-hal-async", "driver"]
-categories = ["embedded", "hardware-support", "no-std"]
+keywords = ["touchscreen", "embedded-hal", "embedded", "i2c", "cst92xx"]
+categories = ["embedded", "hardware-support"]
 readme = "README.md"
 exclude = ["docs/", ".*"]
 
