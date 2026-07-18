@@ -9,6 +9,7 @@ description = "Driver crate for CST92xx (CST9217 and CST9220) touch controllers 
 keywords = ["touchscreen", "cst92xx", "cst9217", "cst9220", "embedded-hal", "embedded-hal-async", "driver"]
 categories = ["embedded", "hardware-support", "no-std"]
 readme = "README.md"
+exclude = ["docs/", ".*"]
 
 [dependencies]
 embedded-hal = "1.0.0"
