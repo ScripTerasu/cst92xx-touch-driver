@@ -27,7 +27,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
-name = "cst9217"
+name = "cst92xx"
 version = "0.1.0"
 dependencies = [
  "defmt",

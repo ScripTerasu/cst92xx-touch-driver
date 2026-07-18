@@ -7,7 +7,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use cst9217::CST92xx;
+use cst92xx::CST92xx;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
