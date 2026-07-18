@@ -1,8 +1,12 @@
 [package]
-edition      = "2024"
-name         = "esp32s3-sample"
+edition = "2024"
+name = "esp32s3-sample"
+version = "0.1.0"
 rust-version = "1.88"
-version      = "0.1.0"
+authors = ["Embedded Team <dev@example.com>"]
+description = "Minimal ESP32-S3 demo wiring the CST92xx touch stack with async Embassy tasks."
+publish = false
+repository = "https://github.com/ScripTerasu/cst92xx-touch-driver"
 
 [[bin]]
 name = "esp32s3-sample"
@@ -10,32 +14,24 @@ path = "./src/bin/main.rs"
 
 [dependencies]
 cst9217 = { path = "../..", features = ["defmt"] }
-esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
-
-esp-rtos = { version = "0.3.0", features = ["defmt", "embassy", "esp32s3"] }
-
-embedded-hal-async = "1.0"
-
-defmt                  = "1.1.1"
-defmt-rtt             = "0.4"
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
-
-embassy-executor = { version = "0.10.0", features = ["defmt"] }
-embassy-time     = { version = "0.5.0", features = ["defmt"] }
-esp-println      = { version = "0.17.0", features = ["defmt-espflash", "esp32s3"] }
-
 critical-section = "1.2.0"
-static_cell      = "2.1.1"
-
+defmt = "1.1.1"
+embassy-executor = { version = "0.10.0", features = ["defmt"] }
+embassy-time = { version = "0.5.0", features = ["defmt"] }
+embedded-hal-async = "1.0"
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
+esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
+esp-println = { version = "0.17.0", features = ["defmt-espflash", "esp32s3"] }
+esp-rtos = { version = "0.3.0", features = ["defmt", "embassy", "esp32s3"] }
+static_cell = "2.1.1"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
+# The default debug profile is too slow/big for resource-constrained devices.
 [profile.dev]
-# The default debug profile is too slow and too big for resource-constrained devices.
-# Always build with some optimizations enabled.
 opt-level = "s"
 
 [profile.release]
-codegen-units = 1     # LLVM can perform better optimizations using a single thread
-debug         = 2     # prefer slower builds but better debugging experience
-lto           = 'fat'
-opt-level     = 's'
+codegen-units = 1     # LLVM performs better optimizations with a single thread
+debug = 2             # slower builds but richer debugging
+lto = 'fat'
+opt-level = 's'
