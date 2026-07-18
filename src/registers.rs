@@ -18,6 +18,6 @@ pub const CST92XX_BOOT_ADDRESS: u8 = CST92XX_SLAVE_ADDRESS;
 pub const CST92XX_ACK: u8 = 0xAB;
 pub const CST92XX_MEM_SIZE: u32 = 0x007F80;
 
-pub const MAX_FINGER_NUM: u8 = 2;
+pub const MAX_FINGER_NUM: usize = 2;
 pub const PROGRAM_PAGE_SIZE: usize = 128;
 pub const TOUCHPOINT_ENTRY_LEN: usize = 8;
