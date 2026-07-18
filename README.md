@@ -58,6 +58,16 @@ where
 }
 ```
 
+## API overview
+
+| Item | Description |
+| --- | --- |
+| `CST92xx<I2C>` | Async driver built atop `embedded-hal-async::i2c::I2c`. Provides `init`, `touches`, `sleep`, `set_mode`, and the raw register helpers for runtime-driven flows. |
+| `BlockingCST92xx<I2C, Delay>` | Sync counterpart using `embedded_hal::i2c::I2c` and `embedded_hal::delay::DelayNs`. Mirrors the async API so you can reuse business logic between runtimes. |
+| `RunMode` | Enum that describes every controller mode (normal, debug, factory, etc.). Pass it to `set_mode` on either driver to change operation. |
+| `Point` | Touch descriptor returned by `touches()`. Includes `track_id`, `(x, y)` coordinates, and optional `area`. |
+| `TouchConfig` | Stores resolution metadata read from chip attributes. Shared by both drivers and helpful when normalizing coordinates. |
+
 - `touches()` reads the `REG_READ` report and returns an array, filtering inactive slots automatically.
 - `sleep()` and `set_mode()` mirror SensorLib’s command sequence for switching run modes.
 - Use `driver.get_model_name()` (or `model_name_from_chip_id`) to log the controller identity; enabling `defmt` also reports the raw `REG_CHIP_INFO` bytes for diagnostics.
