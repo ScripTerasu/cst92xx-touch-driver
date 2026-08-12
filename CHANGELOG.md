@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-12
+
 ### Fixed
 
 - CI's `test` job failed for every `*,defmt` combination: `cargo test` links a real executable, and `defmt`'s macros need a `#[defmt::global_logger]` implementation to satisfy that link — something only meaningful on an embedded target with a real transport (e.g. `defmt-rtt`, as the ESP32-S3 example uses), not on the CI runner. Switched that step to `cargo build`, which only needs to typecheck the `defmt`-gated code, not link a runnable binary.
@@ -69,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release: async CST92xx driver (`embedded-hal-async`), followed by a blocking counterpart (`embedded-hal` + `DelayNs`), shared register/error/mode types, `defmt` support, and an ESP32-S3 Waveshare AMOLED sample project.
 
-[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.2...HEAD
+[0.2.2]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/releases/tag/0.1.0
