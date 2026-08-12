@@ -60,12 +60,8 @@ pub use types::{DisplayMapping, Orientation, TouchConfig};
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod protocol;
 
-#[cfg(feature = "async")]
-mod r#async;
-#[cfg(feature = "blocking")]
-mod blocking;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod driver;
 
-#[cfg(feature = "async")]
-pub use r#async::CST92xx;
-#[cfg(feature = "blocking")]
-pub use blocking::CST92xx;
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub use driver::CST92xx;
