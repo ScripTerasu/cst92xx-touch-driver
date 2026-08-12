@@ -1,7 +1,17 @@
-use core::convert::Infallible;
 use embedded_hal::delay::DelayNs;
 
 use cst92xx::{CST92xx, Error, RunMode, registers};
+
+/// A minimal fallible I2C error, so tests can simulate a real bus failure
+/// instead of only ever succeeding (`Infallible` can never construct an `Err`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MockI2cError;
+
+impl embedded_hal::i2c::Error for MockI2cError {
+    fn kind(&self) -> embedded_hal::i2c::ErrorKind {
+        embedded_hal::i2c::ErrorKind::Other
+    }
+}
 
 struct DummyDelay;
 
@@ -38,6 +48,9 @@ const REG_CHIP_TYPE_BYTES: [u8; 2] = registers::REG_CHIP_TYPE.to_be_bytes();
 const REG_FW_VERSION_BYTES: [u8; 2] = registers::REG_FW_VERSION.to_be_bytes();
 const REG_MODE_HANDSHAKE_BYTES: [u8; 2] = registers::REG_MODE_HANDSHAKE.to_be_bytes();
 const REG_MODE_STATUS_BYTES: [u8; 2] = registers::REG_MODE_STATUS.to_be_bytes();
+const REG_FACTORY_MODE_BYTES: [u8; 2] = registers::REG_FACTORY_MODE.to_be_bytes();
+const REG_FACTORY_STATUS_BYTES: [u8; 2] = registers::REG_FACTORY_STATUS.to_be_bytes();
+const REG_FACTORY_READY_BYTES: [u8; 2] = registers::REG_FACTORY_READY.to_be_bytes();
 
 // checkcode = 0xCACA_0000, little-endian.
 const CHECK_CODE_VALID: [u8; 4] = [0x00, 0x00, 0xCA, 0xCA];
@@ -55,6 +68,14 @@ const FW_VERSION_VALID: [u8; 8] = [0x04, 0x03, 0x02, 0x01, 0xDD, 0xCC, 0xBB, 0xA
 const FW_VERSION_NO_FIRMWARE: [u8; 8] = [0xA5, 0xA5, 0xA5, 0xA5, 0, 0, 0, 0];
 // Anything other than the handshake's own low byte (0x1E) counts as "not ready yet".
 const MODE_STATUS_NOT_READY: [u8; 4] = [0, 0, 0, 0];
+// read_buffer[1] == REG_MODE_HANDSHAKE's low byte (0x1E): the handshake succeeded.
+const MODE_HANDSHAKE_READY: [u8; 4] = [0, 0x1E, 0, 0];
+// Factory status byte other than 0x14: not ready yet.
+const FACTORY_STATUS_NOT_READY: [u8; 1] = [0x00];
+// Factory status byte 0x14: ready.
+const FACTORY_STATUS_READY: [u8; 1] = [0x14];
+// status[1] == REG_FACTORY_READY's low byte (0x19): the factory command was accepted.
+const FACTORY_MODE_CONFIRMED: [u8; 2] = [0, 0x19];
 
 #[derive(Clone, Copy, Debug)]
 enum Expected<'a> {
@@ -66,6 +87,10 @@ enum Expected<'a> {
         address: u8,
         write: &'a [u8],
         read: &'a [u8],
+    },
+    /// A write that fails with `MockI2cError`, to simulate a real bus fault.
+    WriteErr {
+        address: u8,
     },
 }
 
@@ -111,7 +136,7 @@ fn slice_eq(expected: &[u8], actual: &[u8]) -> bool {
 }
 
 impl embedded_hal::i2c::ErrorType for FakeI2c<'_> {
-    type Error = Infallible;
+    type Error = MockI2cError;
 }
 
 impl embedded_hal::i2c::I2c for FakeI2c<'_> {
@@ -125,6 +150,9 @@ impl embedded_hal::i2c::I2c for FakeI2c<'_> {
                 address: expected_address,
                 data,
             } if *expected_address == address && slice_eq(data, write) => Ok(()),
+            Expected::WriteErr {
+                address: expected_address,
+            } if *expected_address == address => Err(MockI2cError),
             other => panic!("unexpected write operation: {other:?}"),
         }
     }
@@ -325,4 +353,90 @@ fn set_mode_returns_not_ready_when_handshake_never_acks() {
 
     let (i2c, _, _) = driver.into_inner();
     i2c.assert_done();
+}
+
+#[test]
+fn set_mode_factory_succeeds_after_polling_retries() {
+    let expectations = [
+        // Outer mode handshake succeeds on the first attempt.
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_MODE_STATUS_BYTES,
+            read: &MODE_HANDSHAKE_READY,
+        },
+        // prepare_factory_mode: not ready on the first poll...
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_FACTORY_MODE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_FACTORY_STATUS_BYTES,
+            read: &FACTORY_STATUS_NOT_READY,
+        },
+        // ...ready on the second.
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_FACTORY_MODE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_FACTORY_STATUS_BYTES,
+            read: &FACTORY_STATUS_READY,
+        },
+        // set_mode writes the factory-ready command and confirms it.
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_FACTORY_READY_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_MODE_STATUS_BYTES,
+            read: &FACTORY_MODE_CONFIRMED,
+        },
+    ];
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    driver.set_mode(RunMode::Factory).unwrap();
+
+    let (i2c, _, _) = driver.into_inner();
+    i2c.assert_done();
+}
+
+#[test]
+fn set_mode_factory_propagates_i2c_error_when_polling_never_succeeds() {
+    let mut expectations = vec![
+        // Outer mode handshake succeeds on the first attempt.
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_MODE_STATUS_BYTES,
+            read: &MODE_HANDSHAKE_READY,
+        },
+    ];
+    // prepare_factory_mode retries 10 times; every write to REG_FACTORY_MODE fails.
+    for _ in 0..10 {
+        expectations.push(Expected::WriteErr {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+        });
+    }
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let result = driver.set_mode(RunMode::Factory);
+    assert!(matches!(result, Err(Error::I2C(MockI2cError))));
 }

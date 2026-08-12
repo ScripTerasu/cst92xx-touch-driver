@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CI's `test` job failed for every `*,defmt` combination: `cargo test` links a real executable, and `defmt`'s macros need a `#[defmt::global_logger]` implementation to satisfy that link — something only meaningful on an embedded target with a real transport (e.g. `defmt-rtt`, as the ESP32-S3 example uses), not on the CI runner. Switched that step to `cargo build`, which only needs to typecheck the `defmt`-gated code, not link a runnable binary.
 - The 0.2.1 fix for the example's GPIO pins implied `TP_RESET → GPIO2` was a fact about the CST92xx family in general; it's actually specific to the Waveshare 1.75" (CST9217) board. Added `docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf` (the 2.16", CST9220 variant) and reworded the README/example docs to make clear pin assignments are per-board — that board wires `TP_RESET` to GPIO40 instead.
+- `set_mode()`'s handshake retry loop and `prepare_factory_mode()` discarded the actual I2C error on every failed attempt and always returned a generic `Error::NotReady` once retries were exhausted. Both now track the last I2C error and return it instead, so a genuinely broken bus is distinguishable from the chip just not confirming the handshake in time. Added tests (both drivers) covering the successful `RunMode::Factory` polling-retry path and this new error-propagation path — previously `prepare_factory_mode()` had no coverage at all.
 
 ## [0.2.1] - 2026-08-12
 

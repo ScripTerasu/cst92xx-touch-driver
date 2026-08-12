@@ -214,21 +214,21 @@ where
         let mut read_buffer = [0u8; 4];
         let handshake = REG_MODE_HANDSHAKE.to_be_bytes();
         let status_reg = REG_MODE_STATUS.to_be_bytes();
+        let mut last_error = None;
 
         for _ in 0..3 {
-            if self.write(&handshake).await.is_err() {
+            if let Err(e) = self.write(&handshake).await {
+                last_error = Some(e);
                 self.delay.delay_ms(200).await;
                 continue;
             }
-            if self.write(&handshake).await.is_err() {
+            if let Err(e) = self.write(&handshake).await {
+                last_error = Some(e);
                 self.delay.delay_ms(200).await;
                 continue;
             }
-            if self
-                .write_read(&status_reg, &mut read_buffer)
-                .await
-                .is_err()
-            {
+            if let Err(e) = self.write_read(&status_reg, &mut read_buffer).await {
+                last_error = Some(e);
                 self.delay.delay_ms(200).await;
                 continue;
             }
@@ -241,7 +241,10 @@ where
         if !ready {
             #[cfg(feature = "defmt")]
             defmt::debug!("mode handshake failed");
-            return Err(Error::NotReady);
+            // If every retry failed on an I2C error, surface that instead of a
+            // generic NotReady — it's the difference between "the bus is broken"
+            // and "the chip just never confirmed the handshake in time".
+            return Err(last_error.unwrap_or(Error::NotReady));
         }
 
         #[cfg(feature = "defmt")]
@@ -277,19 +280,21 @@ where
         &mut self,
         read_buffer: &mut [u8; 4],
     ) -> Result<[u8; 2], Error<E>> {
+        let mut last_error = None;
         for _ in 0..10 {
-            if self.write(&REG_FACTORY_MODE.to_be_bytes()).await.is_err() {
+            if let Err(e) = self.write(&REG_FACTORY_MODE.to_be_bytes()).await {
+                last_error = Some(e);
                 self.delay.delay_ms(1).await;
                 #[cfg(feature = "defmt")]
                 defmt::debug!("factory mode write failed");
                 continue;
             }
             self.delay.delay_ms(10).await;
-            if self
+            if let Err(e) = self
                 .write_read(&REG_FACTORY_STATUS.to_be_bytes(), &mut read_buffer[..1])
                 .await
-                .is_err()
             {
+                last_error = Some(e);
                 self.delay.delay_ms(1).await;
                 #[cfg(feature = "defmt")]
                 defmt::debug!("factory mode status read failed");
@@ -301,7 +306,9 @@ where
                 return Ok(REG_FACTORY_READY.to_be_bytes());
             }
         }
-        Err(Error::NotReady)
+        // Same reasoning as set_mode()'s handshake loop: prefer the real I2C
+        // error over a generic NotReady when that's why we never saw 0x14.
+        Err(last_error.unwrap_or(Error::NotReady))
     }
 
     /// Write raw bytes (register + payload) to the controller.
