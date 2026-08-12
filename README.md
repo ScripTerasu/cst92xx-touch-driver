@@ -1,5 +1,7 @@
 # CST92xx Touch Controller Driver
 
+[![CI](https://github.com/ScripTerasu/cst92xx-touch-driver/actions/workflows/ci.yml/badge.svg)](https://github.com/ScripTerasu/cst92xx-touch-driver/actions/workflows/ci.yml)
+
 `cst92xx` is a `no_std` driver for the CST92xx family of capacitive touch controllers (CST9217, CST9220) used on small AMOLED touch panels, ported from [SensorLib's `TouchDrvCST92xx`][sensorlib-cpp] C++ driver to idiomatic `embedded-hal`. It exposes one `CST92xx` type backed by either async or blocking I²C, shared register/type modules, and the `RunMode` enum so you can plug it into any embedded project.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.

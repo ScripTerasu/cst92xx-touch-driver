@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  test:
+    name: Test (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [async, blocking]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --no-default-features --features ${{ matrix.feature }}
+      - run: cargo test --no-default-features --features ${{ matrix.feature }},defmt
+
+  clippy:
+    name: Clippy (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [async, blocking]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --no-default-features --features ${{ matrix.feature }} --all-targets -- -D warnings
+
+  doc:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  mutually-exclusive-features:
+    name: async + blocking must fail to compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Expect --all-features to fail
+        run: |
+          if cargo build --all-features; then
+            echo "::error::cargo build --all-features unexpectedly succeeded — async and blocking must stay mutually exclusive (see the compile_error! in src/lib.rs)"
+            exit 1
+          fi
+
+  msrv:
+    name: MSRV (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85
+      - run: cargo build --no-default-features --features async
+      - run: cargo build --no-default-features --features blocking
+
+  # The examples/esp32s3-sample crate needs the Espressif Xtensa toolchain
+  # (espup), which isn't wired up here yet — build it manually before
+  # relying on it, or add a job with the esp-rs/xtensa-toolchain action.
