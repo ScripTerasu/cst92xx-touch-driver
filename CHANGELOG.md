@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-12
+
+### Fixed
+
+- `reset()`'s post-reset settle delay was 30ms, a guess made before checking the CST9217 datasheet's power-on/reset section (10.5) for actual numbers. It documents `TRON` (chip reinitialization time after reset) as 100ms typical; bumped the delay to match. The 10ms low pulse already comfortably clears `TRST` (reset pulse width, 0.1ms typical), so that's unchanged.
+- The ESP32-S3 example wired `RST` to GPIO11 and `TOUCH_INT` to GPIO40 — an assumption made without hardware documentation to back it up. Added the board's schematic (`docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf`) and corrected them to GPIO2 and GPIO11 respectively, per the schematic's `TP_RESET`/`TP_INT` net names.
+
+### Added
+
+- Docs (crate README and the ESP32-S3 example's) now cite the board schematic and note that `TP_SCL`/`TP_SDA` (GPIO14/15) is shared with the onboard ES8311 codec and QMI8658C IMU, not a touch-dedicated bus.
+
 ## [0.2.0] - 2026-08-11
 
 ### Added
@@ -52,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release: async CST92xx driver (`embedded-hal-async`), followed by a blocking counterpart (`embedded-hal` + `DelayNs`), shared register/error/mode types, `defmt` support, and an ESP32-S3 Waveshare AMOLED sample project.
 
-[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/releases/tag/0.1.0
