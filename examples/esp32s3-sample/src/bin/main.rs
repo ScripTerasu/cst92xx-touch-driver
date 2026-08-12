@@ -65,6 +65,13 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 #[embassy_executor::task]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "clippy sums the whole async state machine (which embassy stores in the static \
+    TaskPool, not on the call stack) as if it were the function's stack frame. Verified via \
+    objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 192 \
+    bytes, well under the crate's 1024-byte threshold."
+)]
 async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>>) {
     // 1. Initialize the driver at task startup
     if let Err(e) = touch_driver.init().await {
