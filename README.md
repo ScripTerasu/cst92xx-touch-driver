@@ -83,7 +83,8 @@ where
 | `CST92XX_ACK` | Value returned by `REG_READ` when the controller is awake. |
 | `CST92XX_MEM_SIZE` | Size of the controller's flash (≈31 KB). |
 | `REG_READ` | Diagnostic register used to verify that the controller is responding. |
-| `REG_CHIP_INFO` | Returns the project and chip identifiers painted during the bootloader handshake. |
+| `REG_CHIP_TYPE` | Returns the project and chip identifiers read during `get_attribute()`. |
+| `REG_FW_VERSION` | Returns the firmware version and checksum read during `get_attribute()`. |
 | `MAX_FINGER_NUM` | Maximum simultaneous contacts supported by the controller. |
 | `PROGRAM_PAGE_SIZE` | Bootloader/program page size (128 bytes). |
 | `TOUCHPOINT_ENTRY_LEN` | Bytes per touch point report. |

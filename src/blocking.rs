@@ -1,56 +1,89 @@
 use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::OutputPin;
 use embedded_hal::i2c::I2c;
 
 use crate::error::Error;
+use crate::info::{ChipInfo, Point};
 use crate::mode::RunMode;
 use crate::registers::{
     CST92XX_ACK, CST92XX_SLAVE_ADDRESS, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM,
-    REG_BASE_LINE_MODE, REG_DEBUG_MODE, REG_DIFF_MODE, REG_FACTORY_MODE, REG_LOW_POWER_MODE,
-    REG_NORMAL_MODE, REG_RAW_MODE, REG_READ, REG_SLEEP_MODE,
+    REG_BASE_LINE_MODE, REG_CHECK_CODE, REG_CHIP_TYPE, REG_DEBUG_MODE, REG_DIFF_MODE,
+    REG_FACTORY_HIGH_DRV, REG_FACTORY_LOW_DRV, REG_FACTORY_MODE, REG_FACTORY_READY,
+    REG_FACTORY_SHORT, REG_FACTORY_STATUS, REG_FW_VERSION, REG_LOW_POWER_MODE, REG_MODE_HANDSHAKE,
+    REG_MODE_STATUS, REG_NORMAL_MODE, REG_RAW_MODE, REG_READ, REG_RESOLUTION, REG_SLEEP_MODE,
+    REG_UPDATE_FIRMWARE,
 };
-use crate::types::{Point, TouchConfig};
+use crate::reset_pin::NoResetPin;
+use crate::types::TouchConfig;
 
 /// Blocking CST92xx controller driver backed by synchronous `embedded-hal`.
 ///
-/// Owns an I²C bus and `DelayNs` provider so you can call `.touches()` from
-/// contexts without an async executor.
-pub struct BlockingCST92xx<I2C, DELAY> {
+/// Owns an I²C bus, a `DelayNs` provider, and (optionally) a reset pin so you
+/// can call `.touches()` from contexts without an async executor.
+pub struct CST92xx<I2C, DELAY, RST = NoResetPin> {
     i2c: I2C,
     delay: DELAY,
+    rst: RST,
     config: TouchConfig,
-    chip_type: u16,
+    chip_info: ChipInfo,
 }
 
-impl<I2C, E, DELAY> BlockingCST92xx<I2C, DELAY>
+impl<I2C, E, DELAY> CST92xx<I2C, DELAY, NoResetPin>
 where
     I2C: I2c<Error = E>,
     DELAY: DelayNs,
 {
-    /// Create a new blocking CST92xx driver.
+    /// Create a new blocking CST92xx driver without a dedicated reset pin.
     ///
     /// `i2c` should implement `embedded-hal::i2c::I2c` for the controller's 7-bit address,
-    /// and `delay` is used for reset/mode timing.
+    /// and `delay` is used for reset/mode timing. Use `.with_reset()` to attach a real
+    /// `RST` line if one is wired up.
     pub fn new(i2c: I2C, delay: DELAY) -> Self {
         Self {
             i2c,
             delay,
+            rst: NoResetPin,
             config: TouchConfig::default(),
-            chip_type: 0,
+            chip_info: ChipInfo::default(),
+        }
+    }
+}
+
+impl<I2C, E, DELAY, RST> CST92xx<I2C, DELAY, RST>
+where
+    I2C: I2c<Error = E>,
+    DELAY: DelayNs,
+    RST: OutputPin,
+{
+    /// Attach a hardware reset pin, replacing the no-op default.
+    pub fn with_reset<RST2: OutputPin>(self, rst: RST2) -> CST92xx<I2C, DELAY, RST2> {
+        CST92xx {
+            i2c: self.i2c,
+            delay: self.delay,
+            rst,
+            config: self.config,
+            chip_info: self.chip_info,
         }
     }
 
-    /// Take ownership of the I2C bus and delay provider.
+    /// Override the touch coordinate transform (orientation/display mapping).
+    pub fn with_config(mut self, config: TouchConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Take ownership of the I2C bus, delay provider, and reset pin.
     ///
     /// Useful when you want to re-use the bus for other devices after the driver is dropped.
-    pub fn into_inner(self) -> (I2C, DELAY) {
-        (self.i2c, self.delay)
+    pub fn into_inner(self) -> (I2C, DELAY, RST) {
+        (self.i2c, self.delay, self.rst)
     }
 
     /// Initialize the controller (reset + attribute read) and ensure the chip is supported.
     ///
-    /// Mirrors `CST92xx::init()` but using the blocking helpers below.
+    /// Mirrors `TouchDrvCST92xx::initImpl()`, which just calls `getAttribute()` — the
+    /// reset pulse itself happens inside `get_attribute()`, matching SensorLib.
     pub fn init(&mut self) -> Result<(), Error<E>> {
-        self.reset();
         self.get_attribute()?;
 
         #[cfg(feature = "defmt")]
@@ -58,67 +91,73 @@ where
         Ok(())
     }
 
-    /// Simple delay helper that mimics the hardware reset timing.
+    /// Pulse the reset pin (if any) and wait for the controller to come back up.
     ///
-    /// Uses the provided `DelayNs` to pause for the same period SensorLib waits between resets.
+    /// With the default `NoResetPin` this is just the settle delay SensorLib waits after
+    /// resetting; with a real `RST` pin attached via `.with_reset()`, the pin is pulsed
+    /// low first. The datasheet does not document the minimum low-pulse width, so this
+    /// timing may need tuning for your hardware.
     pub fn reset(&mut self) {
+        let _ = self.rst.set_low();
+        self.delay.delay_ms(10_u32);
+        let _ = self.rst.set_high();
         self.delay.delay_ms(30_u32);
     }
 
     /// Read controller metadata (checkcode, resolution, chip/version) and validate the chip.
     ///
-    /// Runs the same attribute reads as SensorLib (`0xD1/0xD2`) and caches resolution plus chip ID.
+    /// Runs the same reset + attribute reads as SensorLib's `getAttribute()` (`0xD1/0xD2`)
+    /// and caches the result, retrievable via `chip_info()`.
     pub fn get_attribute(&mut self) -> Result<(), Error<E>> {
-        self.delay.delay_ms(30_u32);
+        self.reset();
 
         let mut buffer = [0u8; 8];
-        self.write(&[0xD1, 0x01])?;
+        // Enter command mode: this is the same register as `REG_DEBUG_MODE`.
+        self.write(&REG_DEBUG_MODE.to_be_bytes())?;
         self.delay.delay_ms(10_u32);
 
-        self.write_read(&[0xD1, 0xFC], &mut buffer[..4])?;
-
+        self.write_read(&REG_CHECK_CODE.to_be_bytes(), &mut buffer[..4])?;
         let check_code = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
 
         #[cfg(feature = "defmt")]
         defmt::info!("Chip checkcode: {=u32:#010X}", check_code);
 
-        self.write_read(&[0xD1, 0xF8], &mut buffer[..4])?;
-        self.config.resolution_x = u16::from_le_bytes([buffer[0], buffer[1]]);
-        self.config.resolution_y = u16::from_le_bytes([buffer[2], buffer[3]]);
+        self.write_read(&REG_RESOLUTION.to_be_bytes(), &mut buffer[..4])?;
+        self.chip_info.resolution_x = u16::from_le_bytes([buffer[0], buffer[1]]);
+        self.chip_info.resolution_y = u16::from_le_bytes([buffer[2], buffer[3]]);
 
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Chip resolution X={=u16} Y={=u16}",
-            self.config.resolution_x,
-            self.config.resolution_y
+            self.chip_info.resolution_x,
+            self.chip_info.resolution_y
         );
 
-        self.write_read(&[0xD2, 0x04], &mut buffer[..4])?;
-        self.chip_type =
+        self.write_read(&REG_CHIP_TYPE.to_be_bytes(), &mut buffer[..4])?;
+        self.chip_info.chip_type =
             (u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) >> 16) as u16;
-
-        let _project_id = u32::from(u16::from_le_bytes([buffer[0], buffer[1]]));
+        self.chip_info.project_id = u32::from(u16::from_le_bytes([buffer[0], buffer[1]]));
 
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Chip type={=u16:#06X}, Project ID={=u32:#010X}",
-            self.chip_type,
-            _project_id
+            self.chip_info.chip_type,
+            self.chip_info.project_id
         );
 
-        self.write_read(&[0xD2, 0x08], &mut buffer[..8])?;
-        let fw_version = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-
-        let _checksum = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+        self.write_read(&REG_FW_VERSION.to_be_bytes(), &mut buffer[..8])?;
+        self.chip_info.fw_version =
+            u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        self.chip_info.checksum = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Chip IC version={=u32:#010X}, checksum={=u32:#010X}",
-            fw_version,
-            _checksum
+            self.chip_info.fw_version,
+            self.chip_info.checksum
         );
 
-        if fw_version == 0xA5A5A5A5 {
+        if self.chip_info.fw_version == 0xA5A5_A5A5 {
             #[cfg(feature = "defmt")]
             defmt::error!("Chip doesn't have firmware.");
 
@@ -132,14 +171,24 @@ where
             return Err(Error::InvalidCheckCode);
         }
 
-        if self.chip_type != CST9217_CHIP_ID && self.chip_type != CST9220_CHIP_ID {
+        if self.chip_info.chip_type != CST9217_CHIP_ID
+            && self.chip_info.chip_type != CST9220_CHIP_ID
+        {
             #[cfg(feature = "defmt")]
-            defmt::error!("Unsupported chip type: {=u16:#06X}", self.chip_type);
+            defmt::error!(
+                "Unsupported chip type: {=u16:#06X}",
+                self.chip_info.chip_type
+            );
 
-            return Err(Error::InvalidChipType(self.chip_type));
+            return Err(Error::InvalidChipType(self.chip_info.chip_type));
         }
 
         Ok(())
+    }
+
+    /// Chip metadata discovered by the last successful `get_attribute()`/`init()` call.
+    pub fn chip_info(&self) -> ChipInfo {
+        self.chip_info
     }
 
     /// Request the controller to enter sleep via the ESP32-defined register sequence.
@@ -147,22 +196,15 @@ where
     /// Switches into `DebugInfo` first and then writes `REG_SLEEP_MODE`, matching the firmware's handshake.
     pub fn sleep(&mut self) -> Result<(), Error<E>> {
         self.set_mode(RunMode::DebugInfo)?;
-
-        let buffer = REG_SLEEP_MODE.to_be_bytes();
-        self.write(&buffer)?;
-
+        self.write(&REG_SLEEP_MODE.to_be_bytes())?;
         Ok(())
     }
 
     /// Return a human-friendly model string derived from the cached chip ID.
     ///
-    /// Returns `"UNKNOWN"` until `get_attribute` has populated `chip_type`.
-    pub fn model_name(&self) -> &str {
-        match self.chip_type {
-            CST9220_CHIP_ID => "CST9220",
-            CST9217_CHIP_ID => "CST9217",
-            _ => "UNKNOWN",
-        }
+    /// Returns `"UNKNOWN"` until `get_attribute` has populated `chip_info()`.
+    pub fn model_name(&self) -> &'static str {
+        self.chip_info.model_name()
     }
 
     /// Switch to a controller run mode (normal, debug, factory, etc.).
@@ -171,21 +213,23 @@ where
     pub fn set_mode(&mut self, mode: RunMode) -> Result<(), Error<E>> {
         let mut ready = false;
         let mut read_buffer = [0u8; 4];
+        let handshake = REG_MODE_HANDSHAKE.to_be_bytes();
+        let status_reg = REG_MODE_STATUS.to_be_bytes();
 
         for _ in 0..3 {
-            if self.write(&[0xD1, 0x1E]).is_err() {
+            if self.write(&handshake).is_err() {
                 self.delay.delay_ms(200_u32);
                 continue;
             }
-            if self.write(&[0xD1, 0x1E]).is_err() {
+            if self.write(&handshake).is_err() {
                 self.delay.delay_ms(200_u32);
                 continue;
             }
-            if self.write_read(&[0x00, 0x02], &mut read_buffer).is_err() {
+            if self.write_read(&status_reg, &mut read_buffer).is_err() {
                 self.delay.delay_ms(200_u32);
                 continue;
             }
-            if read_buffer[1] == 0x1E {
+            if read_buffer[1] == handshake[1] {
                 ready = true;
                 break;
             }
@@ -198,76 +242,28 @@ where
         }
 
         #[cfg(feature = "defmt")]
-        defmt::debug!("set_work_mode: {:?}", mode);
+        defmt::debug!("set_mode -> {:?}", mode);
 
         let mode_bytes = match mode {
-            RunMode::Normal => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> NORMAL");
-                REG_NORMAL_MODE.to_be_bytes()
-            }
-            RunMode::LowPower => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> LOW_POWER");
-                REG_LOW_POWER_MODE.to_be_bytes()
-            }
-            RunMode::DeepSleep => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> DEEP_SLEEP");
-                REG_SLEEP_MODE.to_be_bytes()
-            }
-            RunMode::Wakeup => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> WAKEUP");
-                REG_NORMAL_MODE.to_be_bytes()
-            }
-            RunMode::DebugDiff => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> DEBUG_DIFF");
-                REG_DIFF_MODE.to_be_bytes()
-            }
-            RunMode::DebugRawData => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> DEBUG_RAWDATA");
-                REG_RAW_MODE.to_be_bytes()
-            }
+            RunMode::Normal => REG_NORMAL_MODE.to_be_bytes(),
+            RunMode::LowPower => REG_LOW_POWER_MODE.to_be_bytes(),
+            RunMode::DeepSleep => REG_SLEEP_MODE.to_be_bytes(),
+            RunMode::Wakeup => REG_NORMAL_MODE.to_be_bytes(),
+            RunMode::DebugDiff => REG_DIFF_MODE.to_be_bytes(),
+            RunMode::DebugRawData => REG_RAW_MODE.to_be_bytes(),
             RunMode::Factory => self.prepare_factory_mode(&mut read_buffer)?,
-            RunMode::DebugInfo => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> DEBUG_INFO");
-                REG_DEBUG_MODE.to_be_bytes()
-            }
-            RunMode::UpdateFirmware => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> UPDATE_FIRMWARE");
-                [0xD1, 0x08]
-            }
-            RunMode::FactoryHighDrv => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> FACTORY_HIGH_DRV");
-                [0xD1, 0x10]
-            }
-            RunMode::FactoryLowDrv => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> FACTORY_LOW_DRV");
-                [0xD1, 0x11]
-            }
-            RunMode::FactoryShort => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> FACTORY_SHORT");
-                [0xD1, 0x12]
-            }
-            RunMode::LpScan => {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("mode -> LP_SCAN");
-                REG_BASE_LINE_MODE.to_be_bytes()
-            }
+            RunMode::DebugInfo => REG_DEBUG_MODE.to_be_bytes(),
+            RunMode::UpdateFirmware => REG_UPDATE_FIRMWARE.to_be_bytes(),
+            RunMode::FactoryHighDrv => REG_FACTORY_HIGH_DRV.to_be_bytes(),
+            RunMode::FactoryLowDrv => REG_FACTORY_LOW_DRV.to_be_bytes(),
+            RunMode::FactoryShort => REG_FACTORY_SHORT.to_be_bytes(),
+            RunMode::LpScan => REG_BASE_LINE_MODE.to_be_bytes(),
         };
 
         let mode_cmd = mode_bytes[1];
         self.write(&mode_bytes)?;
         let mut status = [0u8; 2];
-        self.write_read(&[0x00, 0x02], &mut status)?;
+        self.write_read(&status_reg, &mut status)?;
         if status[1] != mode_cmd {
             #[cfg(feature = "defmt")]
             defmt::error!(
@@ -287,8 +283,7 @@ where
     /// Executes the same write/read loop SensorLib uses before entering `Factory` mode.
     fn prepare_factory_mode(&mut self, read_buffer: &mut [u8; 4]) -> Result<[u8; 2], Error<E>> {
         for _ in 0..10 {
-            let reg_bytes = REG_FACTORY_MODE.to_be_bytes();
-            if self.write(&reg_bytes).is_err() {
+            if self.write(&REG_FACTORY_MODE.to_be_bytes()).is_err() {
                 self.delay.delay_ms(1_u32);
                 #[cfg(feature = "defmt")]
                 defmt::debug!("factory mode write failed");
@@ -296,7 +291,7 @@ where
             }
             self.delay.delay_ms(10_u32);
             if self
-                .write_read(&[0x00, 0x09], &mut read_buffer[..1])
+                .write_read(&REG_FACTORY_STATUS.to_be_bytes(), &mut read_buffer[..1])
                 .is_err()
             {
                 self.delay.delay_ms(1_u32);
@@ -307,7 +302,7 @@ where
             if read_buffer[0] == 0x14 {
                 #[cfg(feature = "defmt")]
                 defmt::debug!("factory mode ready");
-                return Ok([0xD1, 0x19]);
+                return Ok(REG_FACTORY_READY.to_be_bytes());
             }
         }
         Err(Error::NotReady)
@@ -363,6 +358,11 @@ where
             return Ok(points);
         }
 
+        let panel_resolution = (self.chip_info.resolution_x, self.chip_info.resolution_y);
+
+        // `i` also drives the non-uniform `start_idx` stride into `buffer`, not just the
+        // write into `points`, so `enumerate()` over `points` doesn't fit cleanly here.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..num_points {
             let start_idx = (i * 5) + if i == 0 { 0 } else { 2 };
             let pdat = &buffer[start_idx..start_idx + 4];
@@ -371,8 +371,9 @@ where
             let event = pdat[0] & 0x0F;
 
             if event == 0x06 && (id as usize) < MAX_FINGER_NUM {
-                let x = ((pdat[1] as u16) << 4) | ((pdat[3] >> 4) as u16);
-                let y = ((pdat[2] as u16) << 4) | ((pdat[3] & 0x0F) as u16);
+                let raw_x = ((pdat[1] as u16) << 4) | ((pdat[3] >> 4) as u16);
+                let raw_y = ((pdat[2] as u16) << 4) | ((pdat[3] & 0x0F) as u16);
+                let (x, y) = self.config.transform(panel_resolution, raw_x, raw_y);
 
                 points[i] = Some(Point {
                     track_id: id,
@@ -381,6 +382,12 @@ where
                     area: 0,
                 });
             }
+        }
+
+        // Mirrors SensorLib: if the first slot never got a valid event, the
+        // whole report is discarded even if a later slot parsed one.
+        if points[0].is_none() {
+            return Ok([None; MAX_FINGER_NUM]);
         }
 
         Ok(points)

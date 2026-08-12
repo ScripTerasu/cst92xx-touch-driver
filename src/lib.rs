@@ -12,6 +12,8 @@ pub mod types;
 pub use error::Error;
 pub use info::{ChipInfo, Point};
 pub use mode::RunMode;
+pub use reset_pin::NoResetPin;
+pub use types::{DisplayMapping, Orientation, TouchConfig};
 
 #[cfg(feature = "async")]
 mod r#async;

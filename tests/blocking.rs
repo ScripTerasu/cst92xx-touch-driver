@@ -149,7 +149,7 @@ fn touches_empty_report_returns_no_points() {
     let touches = driver.touches().unwrap();
     assert!(touches.iter().all(|point| point.is_none()));
 
-    let (i2c, _) = driver.into_inner();
+    let (i2c, _, _) = driver.into_inner();
     i2c.assert_done();
 }
 
@@ -175,6 +175,6 @@ fn touches_parses_single_point() {
     assert_eq!(point.y, ((0x14u16) << 4) | 0x07);
     assert!(touches[1].is_none());
 
-    let (i2c, _) = driver.into_inner();
+    let (i2c, _, _) = driver.into_inner();
     i2c.assert_done();
 }
