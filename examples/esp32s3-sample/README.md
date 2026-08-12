@@ -7,7 +7,7 @@ It is **not** a workspace member of the crate at the repository root — it has 
 ## What's inside?
 
 - `Cargo.toml`: defines the `esp32s3-sample` binary and pulls in `esp-hal`, `esp-rtos`, `embassy`, `defmt`, and the supporting ecosystem crates, plus `cst92xx` via a `path = "../.."` dependency.
-- `src/bin/main.rs`: brings up the ESP32-S3 clocks, an async I²C bus, and the RST pin, spawns a `touch_task` that initializes the CST92xx driver and polls `touches()` in a loop, and logs chip attributes and coordinates via `defmt`.
+- `src/bin/main.rs`: brings up the ESP32-S3 clocks, an async I²C bus, the RST pin, and the TOUCH_INT pin, spawns a `touch_task` that initializes the CST92xx driver and reads `touches()` whenever TOUCH_INT toggles, and logs chip attributes and coordinates via `defmt`.
 - `.cargo/`, `.clippy.toml`, `rust-toolchain.toml`, and `build.rs`: boilerplate from `esp-generate` to pin the toolchain and lint rules.
 
 ## How to run it
@@ -38,10 +38,10 @@ It is **not** a workspace member of the crate at the repository root — it has 
 
 This template shows the minimal CST92xx flow:
 
-- `main()` configures I²C (SDA on GPIO15, SCL on GPIO14, 400 kHz, async), drives RST on GPIO11 as a push-pull output idling high (the controller resets on a low pulse — see the driver [README](../../README.md#wiring-esp32-s3)), attaches it with `.with_reset(rst)`, and spawns `touch_task`.
-- `touch_task` calls `touch_driver.init()` once at startup, which pulses RST and reads the chip attributes; on success it logs the model name, panel resolution, and firmware version, then loops calling `touch_driver.touches()` every 15 ms (~66 Hz) and logging each detected point's `track_id`, `x`, and `y`. A failed `init()` or a per-poll I²C error is logged with the actual `cst92xx::Error`/`esp_hal` error value, not just a generic message.
+- `main()` configures I²C (SDA on GPIO15, SCL on GPIO14 — shared with the onboard ES8311 codec and QMI8658C IMU, 400 kHz, async), drives RST on GPIO2 as a push-pull output idling high (the controller resets on a low pulse — see the driver [README](../../README.md#wiring-esp32-s3)), configures TOUCH_INT on GPIO11 as an input with a pull-up, attaches RST with `.with_reset(rst)`, and spawns `touch_task` with both the driver and the interrupt pin. These pin assignments are confirmed against `docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf` at the repository root (sheet 1, `TP_RESET`/`TP_INT`/`TP_SCL`/`TP_SDA`).
+- `touch_task` calls `touch_driver.init()` once at startup, which pulses RST and reads the chip attributes; on success it logs the model name, panel resolution, and firmware version. It then loops on `touch_int.wait_for_any_edge().await` before each `touch_driver.touches()` call, instead of polling on a fixed interval — the chip only drives TOUCH_INT when it has a report ready, so the task (and the I²C bus) stay idle between touches. The CST9217 datasheet says the interrupt edge is configurable (rising or falling) but doesn't say which one a given panel's firmware uses, so this waits on either edge rather than guessing. A failed `init()` or a per-read I²C error is logged with the actual `cst92xx::Error`/`esp_hal` error value, not just a generic message.
 - Keep `cst92xx = { path = "../..", features = ["defmt"] }` in `Cargo.toml` to reuse the driver crate from this repository; swap the `path` dependency for a version from crates.io in your own project.
 
-Once you confirm the wiring (I²C on GPIO15/14, RST on GPIO11), extend `touch_task` with your own gesture logic, or set an orientation/display mapping via `CST92xx::new(i2c, delay).with_reset(rst).with_config(config)`.
+Once you confirm the wiring (I²C on GPIO15/14, RST on GPIO2, TOUCH_INT on GPIO11), extend `touch_task` with your own gesture logic, or set an orientation/display mapping via `CST92xx::new(i2c, delay).with_reset(rst).with_config(config)`.
 
 > Update this README whenever you change the build/flash workflow or the demo's behavior so it stays accurate for future flashes.

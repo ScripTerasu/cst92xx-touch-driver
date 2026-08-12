@@ -153,10 +153,12 @@ A few behaviors are ported from SensorLib but not yet re-validated against physi
 
 ### Wiring (ESP32-S3)
 
+Confirmed against the [Waveshare board schematic](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) (sheet 1, "TP\_\*" signals):
+
 - I²C SDA → GPIO15
-- I²C SCL → GPIO14
-- IRQ (touch interrupt) → GPIO40
-- RESET / RST pin → GPIO11 (assert low to reset)
+- I²C SCL → GPIO14 (shared with the onboard ES8311 codec and QMI8658C IMU — same bus, not a separate one)
+- IRQ (touch interrupt, `TP_INT`) → GPIO11
+- RESET / RST pin (`TP_RESET`) → GPIO2 (assert low to reset)
 - Power the module with 3.3 V and keep the touch controller powered before releasing reset.
 
 ## References
@@ -164,5 +166,6 @@ A few behaviors are ported from SensorLib but not yet re-validated against physi
 - [SensorLib `TouchDrvCST92xx.cpp`][sensorlib-cpp] by Lewis He
 - [SensorLib `TouchDrvCST92xx.hpp`](https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp) by Lewis He
 - [`docs/CST9217.pdf`](docs/CST9217.pdf) — Hynitron CST9217 datasheet
+- [`docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf`](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) — Waveshare reference board schematic
 
 [sensorlib-cpp]: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp

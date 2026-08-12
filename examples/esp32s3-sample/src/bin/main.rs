@@ -13,7 +13,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Delay, Duration, Timer};
 use esp_hal::Async;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config, I2c};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
@@ -47,6 +47,9 @@ async fn main(spawner: Spawner) -> ! {
 
     let i2c_freq_khz: u32 = 400;
 
+    // TP_SCL/TP_SDA are shared with the onboard ES8311 codec and QMI8658C IMU on this
+    // board (see docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf, sheet 1) — if you add
+    // audio or IMU support to this example, it's the same I2C bus, not a separate one.
     let i2c = I2c::new(
         peripherals.I2C0,
         Config::default().with_frequency(Rate::from_khz(i2c_freq_khz)),
@@ -56,12 +59,25 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    // RST is active-low (see the driver README's wiring section), so idle it high —
-    // the driver's own reset() pulses it low/high on init(), we just own the pin here.
-    let rst = Output::new(peripherals.GPIO11, Level::High, OutputConfig::default());
+    // TP_RESET is active-low (see the driver README's wiring section), so idle it
+    // high — the driver's own reset() pulses it low/high on init(), we just own the
+    // pin here. GPIO2 confirmed against the board schematic (TP_RESET row, sheet 1).
+    let rst = Output::new(peripherals.GPIO2, Level::High, OutputConfig::default());
+
+    // TP_INT confirmed as GPIO11 against the board schematic (TP_INT row, sheet 1).
+    // The CST9217 datasheet (section 10.6, "中断方式") only says the interrupt edge is
+    // configurable as rising or falling — it doesn't document which one this panel's
+    // firmware actually uses, and there's no register in this driver to query or set
+    // it. Wait for either edge instead of guessing a polarity; worst case is one
+    // harmless extra `touches()` read. Pull::Up is a safe default in case the line is
+    // open-drain without its own external pull-up.
+    let touch_int = Input::new(
+        peripherals.GPIO11,
+        InputConfig::default().with_pull(Pull::Up),
+    );
 
     let driver = CST92xx::new(i2c, Delay).with_reset(rst);
-    spawner.spawn(touch_task(driver).unwrap());
+    spawner.spawn(touch_task(driver, touch_int).unwrap());
 
     loop {
         info!("Touch controller running");
@@ -74,10 +90,13 @@ async fn main(spawner: Spawner) -> ! {
     clippy::large_stack_frames,
     reason = "clippy sums the whole async state machine (which embassy stores in the static \
     TaskPool, not on the call stack) as if it were the function's stack frame. Verified via \
-    objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 208 \
+    objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 192 \
     bytes, well under the crate's 1024-byte threshold."
 )]
-async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay, Output<'static>>) {
+async fn touch_task(
+    mut touch_driver: CST92xx<I2c<'static, Async>, Delay, Output<'static>>,
+    mut touch_int: Input<'static>,
+) {
     // 1. Initialize the driver at task startup (this also pulses the RST pin)
     if let Err(e) = touch_driver.init().await {
         error!("Failed to initialize touch panel: {:?}", e);
@@ -96,6 +115,13 @@ async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay, Output
     );
 
     loop {
+        // 3. Sleep until TOUCH_INT actually toggles instead of polling on a fixed
+        // interval — the chip only drives it when it has a report ready (see the
+        // comment where `touch_int` is created), so this keeps the task idle (and
+        // the I2C bus quiet) between touches instead of reading ~66 times a second
+        // whether or not anything changed.
+        touch_int.wait_for_any_edge().await;
+
         match touch_driver.touches().await {
             Ok(points) => {
                 // `flatten()` filters out `None` and unwraps `Some(Point)` in one pass
@@ -112,8 +138,5 @@ async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay, Output
                 error!("I2C communication error: {:?}", e);
             }
         }
-
-        // 3. Sampling frequency (~66Hz with a 15ms delay keeps it smooth)
-        Timer::after_millis(15).await;
     }
 }
