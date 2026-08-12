@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-11
+
 ### Added
 
 - `ChipInfo`, holding the chip metadata `get_attribute()` discovers (chip type, panel resolution, project ID, firmware version, checksum), retrievable via `driver.chip_info()`.
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI (`.github/workflows/ci.yml`): fmt, clippy, and tests for each backend feature, a docs build, an MSRV (1.85) build, and a check that `--all-features` still fails to compile (async/blocking must stay mutually exclusive).
 - `rust-version = "1.85"` in `Cargo.toml`, matching the floor `edition = "2024"` already required.
 - Tests covering `get_attribute()`'s error paths (`InvalidFirmware`, `InvalidCheckCode`, `InvalidChipType`) and `set_mode()`'s `NotReady` handshake timeout, for both drivers — previously only `touches()` had coverage.
+- The ESP32-S3 example now drives its `RST` pin via `.with_reset(...)` instead of relying on the no-op default, and logs the full `ChipInfo` (via its derived `defmt::Format`) plus the actual error value on failures, instead of a generic message.
 
 ### Fixed
 
@@ -49,5 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release: async CST92xx driver (`embedded-hal-async`), followed by a blocking counterpart (`embedded-hal` + `DelayNs`), shared register/error/mode types, `defmt` support, and an ESP32-S3 Waveshare AMOLED sample project.
 
-[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/releases/tag/0.1.0
