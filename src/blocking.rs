@@ -191,7 +191,7 @@ where
         self.chip_info
     }
 
-    /// Request the controller to enter sleep via the ESP32-defined register sequence.
+    /// Request the controller to enter sleep, mirroring SensorLib's `sleep()`.
     ///
     /// Switches into `DebugInfo` first and then writes `REG_SLEEP_MODE`, matching the firmware's handshake.
     pub fn sleep(&mut self) -> Result<(), Error<E>> {

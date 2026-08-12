@@ -2,11 +2,20 @@
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum Error<E> {
-    /// The connected device did not expose a supported chip identifier.
+    /// Reserved for a device that responds on the bus but never returns a
+    /// recognized chip identifier at all. Not currently constructed by this
+    /// driver — see [`Error::InvalidChipType`] for the check `get_attribute()`
+    /// actually performs today.
     UnexpectedChipId,
 
+    /// `get_attribute()` read a firmware version of `0xA5A5A5A5`, which
+    /// SensorLib treats as "chip has no firmware flashed".
     InvalidFirmware,
+    /// `get_attribute()`'s checkcode didn't match the expected `0xCACA____`
+    /// pattern, indicating a garbled or unsupported attribute read.
     InvalidCheckCode,
+    /// `get_attribute()` read a chip type that isn't [`crate::registers::CST9217_CHIP_ID`]
+    /// or [`crate::registers::CST9220_CHIP_ID`]. Carries the chip type that was read.
     InvalidChipType(u16),
     /// A low-level I2C error.
     I2C(E),
