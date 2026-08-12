@@ -32,3 +32,13 @@ defmt = ["dep:defmt"]
 [dev-dependencies]
 futures = "0.3"
 embedded-hal-mock = { version = "0.11", features = ["embedded-hal-async", "eh1"] }
+
+[[test]]
+name = "async"
+path = "tests/async.rs"
+required-features = ["async"]
+
+[[test]]
+name = "blocking"
+path = "tests/blocking.rs"
+required-features = ["blocking"]
