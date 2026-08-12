@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "cst92xx"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "defmt 1.1.1",
  "embedded-hal 1.0.0",
