@@ -1,3 +1,11 @@
+// This example targets the Waveshare ESP32-S3 Touch AMOLED **1.75"** board
+// (CST9217 touch chip) specifically — see docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf
+// at the repository root. Pin numbers below (especially TP_RESET) are NOT
+// portable to other boards: the 2.16" variant of this same product line
+// (CST9220 touch chip, docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf) wires
+// TP_RESET to GPIO40 instead of GPIO2. TP_INT/TP_SCL/TP_SDA happen to match
+// (GPIO11/14/15) between these two boards, but treat that as a coincidence,
+// not a rule — always check your own board's schematic.
 #![no_std]
 #![no_main]
 #![deny(
@@ -61,7 +69,9 @@ async fn main(spawner: Spawner) -> ! {
 
     // TP_RESET is active-low (see the driver README's wiring section), so idle it
     // high — the driver's own reset() pulses it low/high on init(), we just own the
-    // pin here. GPIO2 confirmed against the board schematic (TP_RESET row, sheet 1).
+    // pin here. GPIO2 is confirmed against THIS board's schematic (1.75", TP_RESET
+    // row, sheet 1) — it is NOT the same on every board (see the file-level comment
+    // at the top of this file; the 2.16" variant uses GPIO40 instead).
     let rst = Output::new(peripherals.GPIO2, Level::High, OutputConfig::default());
 
     // TP_INT confirmed as GPIO11 against the board schematic (TP_INT row, sheet 1).

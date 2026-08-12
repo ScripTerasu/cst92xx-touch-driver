@@ -144,7 +144,7 @@ Run the usual tooling before deploying to hardware. `cargo build --all-features`
 
 ## Hardware notes
 
-This driver targets the CST9217 controller on the [Waveshare ESP32-S3 Touch AMOLED 1.75C module](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C), communicating over I²C. The touch report registers return coordinate data packed into 8-byte entries, and after reading a report the driver acknowledges it so the controller can detect the next frame.
+This driver supports both the CST9217 and CST9220 controllers. The `examples/esp32s3-sample` project and the wiring below were built and tested against the [Waveshare ESP32-S3 Touch AMOLED 1.75C module](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C) specifically (CST9217). The touch report registers return coordinate data packed into 8-byte entries, and after reading a report the driver acknowledges it so the controller can detect the next frame.
 
 A few behaviors are ported from SensorLib but not yet re-validated against physical hardware after the most recent refactor, and are worth re-checking if you hit issues:
 
@@ -153,7 +153,9 @@ A few behaviors are ported from SensorLib but not yet re-validated against physi
 
 ### Wiring (ESP32-S3)
 
-Confirmed against the [Waveshare board schematic](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) (sheet 1, "TP\_\*" signals):
+**Pin numbers are per-board, not universal — always confirm against your own board's schematic instead of assuming these.** Even within Waveshare's own ESP32-S3 Touch AMOLED line, `TP_RESET` isn't on the same pin across models: it's GPIO2 on the 1.75" (CST9217) board below, but GPIO40 on the [2.16" (CST9220) board](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-2.16) (see [`docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf`](docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf)) — `TP_INT`/`TP_SCL`/`TP_SDA` happen to be the same (GPIO11/14/15) on both, but that's a coincidence between these two boards, not something to rely on for a third.
+
+Confirmed against the [Waveshare 1.75" board schematic](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) (sheet 1, "TP\_\*" signals):
 
 - I²C SDA → GPIO15
 - I²C SCL → GPIO14 (shared with the onboard ES8311 codec and QMI8658C IMU — same bus, not a separate one)
@@ -166,6 +168,7 @@ Confirmed against the [Waveshare board schematic](docs/ESP32-S3-Touch-AMOLED-1.7
 - [SensorLib `TouchDrvCST92xx.cpp`][sensorlib-cpp] by Lewis He
 - [SensorLib `TouchDrvCST92xx.hpp`](https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp) by Lewis He
 - [`docs/CST9217.pdf`](docs/CST9217.pdf) — Hynitron CST9217 datasheet
-- [`docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf`](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) — Waveshare reference board schematic
+- [`docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf`](docs/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf) — Waveshare 1.75" (CST9217) board schematic, used by `examples/esp32s3-sample`
+- [`docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf`](docs/ESP32-S3-Touch-AMOLED-2.16-Schematic.pdf) — Waveshare 2.16" (CST9220) board schematic, referenced for its different `TP_RESET` pin only
 
 [sensorlib-cpp]: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp
