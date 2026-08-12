@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 use embedded_hal::delay::DelayNs;
 
-use cst92xx::{CST92xx, registers};
+use cst92xx::{CST92xx, Error, RunMode, registers};
 
 struct DummyDelay;
 
@@ -30,6 +30,31 @@ const READ_REPORT_POINT: [u8; READ_LEN] = [
     0,
 ];
 const ACK_COMMAND: [u8; 3] = [REG_READ_BYTES[0], REG_READ_BYTES[1], registers::CST92XX_ACK];
+
+const REG_DEBUG_MODE_BYTES: [u8; 2] = registers::REG_DEBUG_MODE.to_be_bytes();
+const REG_CHECK_CODE_BYTES: [u8; 2] = registers::REG_CHECK_CODE.to_be_bytes();
+const REG_RESOLUTION_BYTES: [u8; 2] = registers::REG_RESOLUTION.to_be_bytes();
+const REG_CHIP_TYPE_BYTES: [u8; 2] = registers::REG_CHIP_TYPE.to_be_bytes();
+const REG_FW_VERSION_BYTES: [u8; 2] = registers::REG_FW_VERSION.to_be_bytes();
+const REG_MODE_HANDSHAKE_BYTES: [u8; 2] = registers::REG_MODE_HANDSHAKE.to_be_bytes();
+const REG_MODE_STATUS_BYTES: [u8; 2] = registers::REG_MODE_STATUS.to_be_bytes();
+
+// checkcode = 0xCACA_0000, little-endian.
+const CHECK_CODE_VALID: [u8; 4] = [0x00, 0x00, 0xCA, 0xCA];
+// checkcode = 0x1234_0000 (high 16 bits don't match the expected 0xCACA marker).
+const CHECK_CODE_INVALID: [u8; 4] = [0x00, 0x00, 0x34, 0x12];
+// resolution_x = 240, resolution_y = 320, both little-endian u16.
+const RESOLUTION_VALID: [u8; 4] = [0xF0, 0x00, 0x40, 0x01];
+// project_id = 0x1234, chip_type = CST9217_CHIP_ID (0x9217), little-endian.
+const CHIP_TYPE_VALID: [u8; 4] = [0x34, 0x12, 0x17, 0x92];
+// project_id = 0x0000, chip_type = 0x1234 (not CST9217/CST9220).
+const CHIP_TYPE_UNKNOWN: [u8; 4] = [0x00, 0x00, 0x34, 0x12];
+// fw_version = 0x0102_0304, checksum = 0xAABB_CCDD, little-endian.
+const FW_VERSION_VALID: [u8; 8] = [0x04, 0x03, 0x02, 0x01, 0xDD, 0xCC, 0xBB, 0xAA];
+// fw_version = 0xA5A5_A5A5, the "chip has no firmware" sentinel.
+const FW_VERSION_NO_FIRMWARE: [u8; 8] = [0xA5, 0xA5, 0xA5, 0xA5, 0, 0, 0, 0];
+// Anything other than the handshake's own low byte (0x1E) counts as "not ready yet".
+const MODE_STATUS_NOT_READY: [u8; 4] = [0, 0, 0, 0];
 
 #[derive(Clone, Copy, Debug)]
 enum Expected<'a> {
@@ -174,6 +199,129 @@ fn touches_parses_single_point() {
     assert_eq!(point.x, ((0x0Au16) << 4) | 0x05);
     assert_eq!(point.y, ((0x14u16) << 4) | 0x07);
     assert!(touches[1].is_none());
+
+    let (i2c, _, _) = driver.into_inner();
+    i2c.assert_done();
+}
+
+fn attribute_expectations(fw_version_and_checksum: &'static [u8; 8]) -> [Expected<'static>; 5] {
+    [
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_DEBUG_MODE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_CHECK_CODE_BYTES,
+            read: &CHECK_CODE_VALID,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_RESOLUTION_BYTES,
+            read: &RESOLUTION_VALID,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_CHIP_TYPE_BYTES,
+            read: &CHIP_TYPE_VALID,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_FW_VERSION_BYTES,
+            read: fw_version_and_checksum,
+        },
+    ]
+}
+
+#[test]
+fn get_attribute_populates_chip_info_on_success() {
+    let expectations = attribute_expectations(&FW_VERSION_VALID);
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    driver.get_attribute().unwrap();
+
+    let info = driver.chip_info();
+    assert_eq!(info.chip_type, registers::CST9217_CHIP_ID);
+    assert_eq!(info.resolution_x, 240);
+    assert_eq!(info.resolution_y, 320);
+    assert_eq!(info.project_id, 0x1234);
+    assert_eq!(info.fw_version, 0x0102_0304);
+    assert_eq!(info.checksum, 0xAABB_CCDD);
+    assert_eq!(driver.model_name(), "CST9217");
+
+    let (i2c, _, _) = driver.into_inner();
+    i2c.assert_done();
+}
+
+#[test]
+fn get_attribute_rejects_missing_firmware() {
+    let expectations = attribute_expectations(&FW_VERSION_NO_FIRMWARE);
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let result = driver.get_attribute();
+    assert!(matches!(result, Err(Error::InvalidFirmware)));
+}
+
+#[test]
+fn get_attribute_rejects_bad_checkcode() {
+    let mut expectations = attribute_expectations(&FW_VERSION_VALID);
+    expectations[1] = Expected::WriteRead {
+        address: registers::CST92XX_SLAVE_ADDRESS,
+        write: &REG_CHECK_CODE_BYTES,
+        read: &CHECK_CODE_INVALID,
+    };
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let result = driver.get_attribute();
+    assert!(matches!(result, Err(Error::InvalidCheckCode)));
+}
+
+#[test]
+fn get_attribute_rejects_unknown_chip_type() {
+    let mut expectations = attribute_expectations(&FW_VERSION_VALID);
+    expectations[3] = Expected::WriteRead {
+        address: registers::CST92XX_SLAVE_ADDRESS,
+        write: &REG_CHIP_TYPE_BYTES,
+        read: &CHIP_TYPE_UNKNOWN,
+    };
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let result = driver.get_attribute();
+    assert!(matches!(result, Err(Error::InvalidChipType(0x1234))));
+}
+
+#[test]
+fn set_mode_returns_not_ready_when_handshake_never_acks() {
+    let handshake_round = [
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::Write {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            data: &REG_MODE_HANDSHAKE_BYTES,
+        },
+        Expected::WriteRead {
+            address: registers::CST92XX_SLAVE_ADDRESS,
+            write: &REG_MODE_STATUS_BYTES,
+            read: &MODE_STATUS_NOT_READY,
+        },
+    ];
+    let expectations = [
+        handshake_round[0],
+        handshake_round[1],
+        handshake_round[2],
+        handshake_round[0],
+        handshake_round[1],
+        handshake_round[2],
+        handshake_round[0],
+        handshake_round[1],
+        handshake_round[2],
+    ];
+
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let result = driver.set_mode(RunMode::Normal);
+    assert!(matches!(result, Err(Error::NotReady)));
 
     let (i2c, _, _) = driver.into_inner();
     i2c.assert_done();
