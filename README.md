@@ -109,7 +109,6 @@ The full register map and protocol constants live in [`registers.rs`](src/regist
 
 ```rust
 pub enum Error<E> {
-    UnexpectedChipId,  // reserved, not currently constructed
     InvalidFirmware,   // get_attribute() saw an unflashed chip
     InvalidCheckCode,  // get_attribute() saw a garbled attribute read
     InvalidChipType(u16), // get_attribute() saw an unsupported chip type

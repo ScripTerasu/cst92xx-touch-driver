@@ -2,12 +2,6 @@
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Clone)]
 pub enum Error<E> {
-    /// Reserved for a device that responds on the bus but never returns a
-    /// recognized chip identifier at all. Not currently constructed by this
-    /// driver — see [`Error::InvalidChipType`] for the check `get_attribute()`
-    /// actually performs today.
-    UnexpectedChipId,
-
     /// `get_attribute()` read a firmware version of `0xA5A5A5A5`, which
     /// SensorLib treats as "chip has no firmware flashed".
     InvalidFirmware,
