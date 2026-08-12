@@ -30,7 +30,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --no-default-features --features ${{ matrix.feature }}
-      - run: cargo test --no-default-features --features ${{ matrix.feature }},defmt
+      # `defmt`'s macros need a #[defmt::global_logger] impl to link a runnable
+      # binary against — that's only meaningful on a real embedded target with a
+      # transport (e.g. defmt-rtt, as the ESP32-S3 example uses), so just check
+      # that this combination still compiles instead of trying to run tests
+      # against it.
+      - run: cargo build --no-default-features --features ${{ matrix.feature }},defmt
 
   clippy:
     name: Clippy (${{ matrix.feature }})

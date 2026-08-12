@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- CI's `test` job failed for every `*,defmt` combination: `cargo test` links a real executable, and `defmt`'s macros need a `#[defmt::global_logger]` implementation to satisfy that link — something only meaningful on an embedded target with a real transport (e.g. `defmt-rtt`, as the ESP32-S3 example uses), not on the CI runner. Switched that step to `cargo build`, which only needs to typecheck the `defmt`-gated code, not link a runnable binary.
+
 ## [0.2.1] - 2026-08-12
 
 ### Fixed
