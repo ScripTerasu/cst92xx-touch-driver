@@ -1,6 +1,6 @@
 use crate::registers::{CST9217_CHIP_ID, CST9220_CHIP_ID};
 
-/// Un punto de toque detectado, ya transformado según `TouchConfig`.
+/// A detected touch point, already transformed according to `TouchConfig`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Point {
@@ -10,8 +10,8 @@ pub struct Point {
     pub area: u16,
 }
 
-/// Metadata del chip, descubierta y validada por `get_attribute()`.
-/// Solo lectura para el usuario — es estado de hardware, no config.
+/// Chip metadata, discovered and validated by `get_attribute()`.
+/// Read-only for callers — this is hardware state, not configuration.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChipInfo {
@@ -24,8 +24,7 @@ pub struct ChipInfo {
 }
 
 impl ChipInfo {
-    /// Nombre de modelo derivado de `chip_type`. Calculado en el momento,
-    /// no cacheado.
+    /// Model name derived from `chip_type`. Computed on the fly, not cached.
     pub fn model_name(&self) -> &'static str {
         match self.chip_type {
             CST9220_CHIP_ID => "CST9220",
