@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional hardware reset pin support via `.with_reset(pin)` on both drivers, defaulting to a no-op `NoResetPin`.
 - `CHANGELOG.md` (this file).
 - `docs/CST9217.pdf`, the reference datasheet.
+- CI (`.github/workflows/ci.yml`): fmt, clippy, and tests for each backend feature, a docs build, an MSRV (1.85) build, and a check that `--all-features` still fails to compile (async/blocking must stay mutually exclusive).
+- `rust-version = "1.85"` in `Cargo.toml`, matching the floor `edition = "2024"` already required.
+- Tests covering `get_attribute()`'s error paths (`InvalidFirmware`, `InvalidCheckCode`, `InvalidChipType`) and `set_mode()`'s `NotReady` handshake timeout, for both drivers — previously only `touches()` had coverage.
 
 ### Fixed
 
@@ -27,13 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `REG_CHIP_INFO` duplicated the value of `REG_DEBUG_MODE` and was unused; removed in favor of named constants (`REG_CHIP_TYPE`, `REG_FW_VERSION`, and others) for the registers `get_attribute()`/`set_mode()` actually read and write.
 - A false-positive `clippy::large_stack_frames` on the ESP32-S3 example's `touch_task`, caused by the lint counting the whole async state machine (stored in `embassy_executor`'s static task pool) as call-stack usage. Confirmed via `objdump` on the built firmware that the real frame is 192 bytes, and scoped an `#[allow]` to that function instead of raising the crate-wide threshold.
 - Assorted stray Spanish-language comments and docstrings translated to English for consistency with the rest of the crate.
+- The ESP32-S3 example's README described a `maintenance_task` and an `examples/esp32s3-touch` demo that don't exist in this codebase, and told readers to run `cargo build -p esp32s3-sample` from a workspace root that doesn't exist either.
 
 ### Changed
 
+- **Breaking:** the async driver's `CST92xx::new()` now takes a `delay: DELAY` parameter (`CST92xx::new(i2c, delay)`, matching the blocking driver) where `DELAY: embedded_hal_async::delay::DelayNs`. `embassy-time` is no longer a dependency of this crate at all — bring your own async delay impl (e.g. `embassy_time::Delay` if you already depend on it). This also fixed a real gap: the crate depended on `embassy-time` without ever wiring up a concrete time driver, which meant any consumer's test suite (including this crate's own) would fail to link the moment it exercised a code path that waits on a timer.
 - `CST92xx`'s async and blocking backends are now gated behind `async` (default) and `blocking` Cargo features, replacing the previous split of always compiling both under different type names (`CST92xx` vs. `BlockingCST92xx`).
 - Magic register bytes (e.g. `[0xD1, 0xFC]`) in `get_attribute()`/`set_mode()` replaced with named constants in `registers.rs`.
 - `RunMode` variants not implemented by SensorLib's reference `setMode()` (`LowPower`, `DeepSleep`, `Wakeup`, `UpdateFirmware`, `LpScan`) are now documented as unverified — they're mapped to a register by naming convention only, with no reference implementation to validate against.
 - README rewritten to match the current API (feature flags, `ChipInfo`, `TouchConfig`, reset pin), replacing stale references to methods and registers that no longer exist.
+- Extracted the protocol logic that was byte-for-byte duplicated between the blocking and async drivers (touch report decoding, run-mode-to-register mapping, attribute validation) into a shared internal `protocol` module, so a future fix only needs to happen once — the reset pin bug above is exactly the kind of drift this prevents.
+
+### Removed
+
+- **Breaking:** `Error::UnexpectedChipId`, a variant this driver never actually constructed (`get_attribute()`'s chip-type check returns `Error::InvalidChipType` instead).
 
 ## [0.1.0] - 2026-07-18
 
