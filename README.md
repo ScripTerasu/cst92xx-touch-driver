@@ -6,7 +6,7 @@
 
 - `#![no_std]` friendly with optional `defmt` logging for instrumentation.
 - `CST92xx<I2C>` exposes `init`, `touches`, `sleep`, and `set_mode` so you can reproduce the SensorLib flow while staying async.
-- `BlockingCST92xx<I2C, Delay>` mirrors the async API for synchronous `embedded-hal` I²C + `DelayNs` providers.
+- `CST92xx<I2C, Delay>` mirrors the async API for synchronous `embedded-hal` I²C + `DelayNs` providers.
 - The crate re-exports `RunMode` at the root, so you can import it alongside `CST92xx` without reaching into submodules.
 - Shared `registers.rs`, `types.rs`, and `error.rs` let you reuse constants or integrate the decoder directly into another driver.
 - Optional `defmt` feature makes `Point`, `TouchConfig`, `RunMode`, and `Error` printable for debugging.
@@ -35,7 +35,7 @@ driver.set_mode(RunMode::LowPower).await?;
 ## Usage example (blocking)
 
 ```rust
-use cst92xx::{BlockingCST92xx, RunMode};
+use cst92xx::{CST92xx, RunMode};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::i2c::I2c;
 
@@ -44,7 +44,7 @@ where
     I2C: I2c<Error = E>,
     D: DelayNs,
 {
-    let mut driver = BlockingCST92xx::new(i2c, delay);
+    let mut driver = CST92xx::new(i2c, delay);
 
     driver.init()?;
 
@@ -63,7 +63,7 @@ where
 | Item | Description |
 | --- | --- |
 | `CST92xx<I2C>` | Async driver built atop `embedded-hal-async::i2c::I2c`. Provides `init`, `touches`, `sleep`, `set_mode`, and the raw register helpers for runtime-driven flows. |
-| `BlockingCST92xx<I2C, Delay>` | Sync counterpart using `embedded_hal::i2c::I2c` and `embedded_hal::delay::DelayNs`. Mirrors the async API so you can reuse business logic between runtimes. |
+| `CST92xx<I2C, Delay>` | Sync counterpart using `embedded_hal::i2c::I2c` and `embedded_hal::delay::DelayNs`. Mirrors the async API so you can reuse business logic between runtimes. |
 | `RunMode` | Enum that describes every controller mode (normal, debug, factory, etc.). Pass it to `set_mode` on either driver to change operation. |
 | `Point` | Touch descriptor returned by `touches()`. Includes `track_id`, `(x, y)` coordinates, and optional `area`. |
 | `TouchConfig` | Stores resolution metadata read from chip attributes. Shared by both drivers and helpful when normalizing coordinates. |

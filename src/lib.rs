@@ -2,15 +2,23 @@
 
 //! Basic driver for the CST92xx touch screen that supports both blocking and async I2C access.
 
-pub mod r#async;
-pub mod blocking;
 pub mod error;
+pub mod info;
 pub mod mode;
 pub mod registers;
+pub mod reset_pin;
 pub mod types;
 
-pub use r#async::CST92xx;
-pub use blocking::BlockingCST92xx;
 pub use error::Error;
+pub use info::{ChipInfo, Point};
 pub use mode::RunMode;
-pub use types::Point;
+
+#[cfg(feature = "async")]
+mod r#async;
+#[cfg(feature = "blocking")]
+mod blocking;
+
+#[cfg(feature = "async")]
+pub use r#async::CST92xx;
+#[cfg(feature = "blocking")]
+pub use blocking::CST92xx;

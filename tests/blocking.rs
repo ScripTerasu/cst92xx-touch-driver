@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 use embedded_hal::delay::DelayNs;
 
-use cst92xx::{BlockingCST92xx, registers};
+use cst92xx::{CST92xx, registers};
 
 struct DummyDelay;
 
@@ -145,7 +145,7 @@ fn touches_empty_report_returns_no_points() {
         read: &READ_REPORT_EMPTY,
     }];
 
-    let mut driver = BlockingCST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
     let touches = driver.touches().unwrap();
     assert!(touches.iter().all(|point| point.is_none()));
 
@@ -167,7 +167,7 @@ fn touches_parses_single_point() {
         },
     ];
 
-    let mut driver = BlockingCST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
     let touches = driver.touches().unwrap();
     let point = touches[0].unwrap();
     assert_eq!(point.track_id, 1);
