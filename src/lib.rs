@@ -9,19 +9,20 @@
 //!
 //! | Feature | Default | Effect |
 //! | --- | --- | --- |
-//! | `async` | yes | `CST92xx::new(i2c)` over `embedded_hal_async::i2c::I2c`, plus an optional reset pin via `.with_reset()`. |
-//! | `blocking` | no | `CST92xx::new(i2c, delay)` over `embedded_hal::i2c::I2c` + `DelayNs`, plus an optional reset pin. |
+//! | `async` | yes | `CST92xx::new(i2c, delay)` over `embedded_hal_async::i2c::I2c` + `embedded_hal_async::delay::DelayNs`, plus an optional reset pin via `.with_reset()`. |
+//! | `blocking` | no | `CST92xx::new(i2c, delay)` over `embedded_hal::i2c::I2c` + `embedded_hal::delay::DelayNs`, plus an optional reset pin. |
 //! | `defmt` | no | Derives `defmt::Format` on the public types for logging. |
 //!
 //! `async` and `blocking` both export a `CST92xx` type at the crate root and
 //! are mutually exclusive — enabling both is a compile error. Use
 //! `default-features = false, features = ["blocking"]` to switch to the sync
-//! driver.
+//! driver. Bring your own async delay impl for `async` (e.g. `embassy_time::Delay`
+//! if you already depend on embassy-time) — this crate doesn't hardcode one.
 //!
 //! ```rust,ignore
 //! use cst92xx::{CST92xx, RunMode};
 //!
-//! let mut driver = CST92xx::new(i2c); // add `.with_reset(rst_pin)` if wired up
+//! let mut driver = CST92xx::new(i2c, delay); // add `.with_reset(rst_pin)` if wired up
 //! driver.init().await?;
 //!
 //! for point in driver.touches().await?.iter().flatten() {

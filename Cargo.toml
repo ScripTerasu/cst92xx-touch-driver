@@ -20,12 +20,11 @@ features = ["async", "defmt"]
 [dependencies]
 embedded-hal = "1.0.0"                                    # siempre: OutputPin (RST)
 embedded-hal-async = { version = "1.0.0", optional = true }
-embassy-time = { version = "0.5.1", optional = true }
 defmt = { version = "1.1.1", optional = true }
 
 [features]
 default = ["async"]
-async = ["dep:embedded-hal-async", "dep:embassy-time"]
+async = ["dep:embedded-hal-async"]
 blocking = []
 defmt = ["dep:defmt"]
 

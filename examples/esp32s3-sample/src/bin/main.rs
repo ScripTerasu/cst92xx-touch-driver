@@ -10,7 +10,7 @@
 use cst92xx::CST92xx;
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use esp_hal::Async;
 use esp_hal::clock::CpuClock;
 use esp_hal::i2c::master::{Config, I2c};
@@ -55,7 +55,7 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    let driver = CST92xx::new(i2c);
+    let driver = CST92xx::new(i2c, Delay);
     spawner.spawn(touch_task(driver).unwrap());
 
     loop {
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) -> ! {
     objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 192 \
     bytes, well under the crate's 1024-byte threshold."
 )]
-async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>>) {
+async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay>) {
     // 1. Initialize the driver at task startup
     if let Err(e) = touch_driver.init().await {
         error!("Failed to initialize touch panel: {:?}", e);

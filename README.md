@@ -8,7 +8,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 | Feature | Default | Effect |
 | --- | --- | --- |
-| `async` | yes | `CST92xx::new(i2c)` over `embedded_hal_async::i2c::I2c`. |
+| `async` | yes | `CST92xx::new(i2c, delay)` over `embedded_hal_async::i2c::I2c` + `embedded_hal_async::delay::DelayNs`. |
 | `blocking` | no | `CST92xx::new(i2c, delay)` over `embedded_hal::i2c::I2c` + `embedded_hal::delay::DelayNs`. |
 | `defmt` | no | Derives `defmt::Format` on `Point`, `ChipInfo`, `TouchConfig`, `RunMode`, and `Error` for logging. |
 
@@ -23,11 +23,13 @@ cst92xx = { version = "0.1", default-features = false, features = ["blocking"] }
 
 ```rust
 use cst92xx::{CST92xx, RunMode};
+use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::i2c::I2c;
 
-let mut driver = CST92xx::new(i2c);
+let mut driver = CST92xx::new(i2c, delay); // any embedded_hal_async::delay::DelayNs works,
+                                            // e.g. embassy_time::Delay if you already use embassy
 // Optional: attach a real RST line and/or an orientation/display mapping.
-// let mut driver = CST92xx::new(i2c).with_reset(rst_pin).with_config(config);
+// let mut driver = CST92xx::new(i2c, delay).with_reset(rst_pin).with_config(config);
 
 // 1. Initialize the controller (reset + attribute read)
 driver.init().await?;
@@ -72,7 +74,7 @@ where
 
 | Item | Description |
 | --- | --- |
-| `CST92xx<I2C>` (feature `async`) | Async driver over `embedded-hal-async::i2c::I2c`. Provides `init`, `touches`, `sleep`, `set_mode`, `chip_info`, `model_name`, `with_reset`, and `with_config`. |
+| `CST92xx<I2C, Delay>` (feature `async`) | Async driver over `embedded-hal-async::i2c::I2c` + `embedded-hal-async::delay::DelayNs`. Provides `init`, `touches`, `sleep`, `set_mode`, `chip_info`, `model_name`, `with_reset`, and `with_config`. |
 | `CST92xx<I2C, Delay>` (feature `blocking`) | Sync counterpart over `embedded_hal::i2c::I2c` + `embedded_hal::delay::DelayNs`. Mirrors the async API so business logic reads the same between runtimes. |
 | `ChipInfo` | Chip metadata discovered by `init()`/`get_attribute()` — chip type, panel resolution, project ID, firmware version, checksum. Read-only; fetch it with `driver.chip_info()`. |
 | `Point` | Touch descriptor returned by `touches()`, already passed through `TouchConfig::transform()`. Includes `track_id`, `(x, y)`, and `area` (currently always `0` — the controller report this driver decodes doesn't carry contact area). |
@@ -90,7 +92,7 @@ where
 Both drivers default to `NoResetPin`, a no-op `OutputPin` — `reset()` still waits out the settle delay but never drives a real pin, which is fine if you only rely on power-on reset. To drive a real `RST` line:
 
 ```rust
-let mut driver = CST92xx::new(i2c).with_reset(rst_pin);
+let mut driver = CST92xx::new(i2c, delay).with_reset(rst_pin);
 ```
 
 The low-pulse width used before releasing reset is a conservative default, not sourced from the datasheet — tune it if your hardware needs a different value.
