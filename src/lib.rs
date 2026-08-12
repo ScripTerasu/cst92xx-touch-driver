@@ -2,6 +2,13 @@
 
 //! Basic driver for the CST92xx touch screen that supports both blocking and async I2C access.
 
+#[cfg(all(feature = "async", feature = "blocking"))]
+compile_error!(
+    "features `async` and `blocking` both export a `CST92xx` type at the crate root and are \
+    mutually exclusive; enable exactly one (`default-features = false, features = [\"blocking\"]` \
+    for the sync driver, or just `features = [\"async\"]`, which is already the default)."
+);
+
 pub mod error;
 pub mod info;
 pub mod mode;
