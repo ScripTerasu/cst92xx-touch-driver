@@ -97,7 +97,7 @@ Both drivers default to `NoResetPin`, a no-op `OutputPin` — `reset()` still wa
 let mut driver = CST92xx::new(i2c, delay).with_reset(rst_pin);
 ```
 
-The low-pulse width used before releasing reset is a conservative default, not sourced from the datasheet — tune it if your hardware needs a different value.
+Timing matches the CST9217 datasheet (section 10.5, "上电/复位"): `TRST` (reset pulse width) is 0.1 ms typical, and `TRON` (chip reinitialization time after reset) is 100 ms typical. This driver holds the pulse low for 10 ms (comfortably over `TRST`) and waits 100 ms after releasing it (matching `TRON`).
 
 ## Constants
 
@@ -148,7 +148,6 @@ This driver targets the CST9217 controller on the [Waveshare ESP32-S3 Touch AMOL
 
 A few behaviors are ported from SensorLib but not yet re-validated against physical hardware after the most recent refactor, and are worth re-checking if you hit issues:
 
-- The reset pulse timing (see [Reset pin](#reset-pin)).
 - The `RunMode` variants documented as unverified (not implemented by SensorLib's reference `setMode()`).
 - `touches()` skips the acknowledgment write entirely when the raw report buffer reads back all-zero, which SensorLib's reference implementation doesn't do — SensorLib always acknowledges after a successful read, regardless of content.
 
@@ -164,5 +163,6 @@ A few behaviors are ported from SensorLib but not yet re-validated against physi
 
 - [SensorLib `TouchDrvCST92xx.cpp`][sensorlib-cpp] by Lewis He
 - [SensorLib `TouchDrvCST92xx.hpp`](https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.hpp) by Lewis He
+- [`docs/CST9217.pdf`](docs/CST9217.pdf) — Hynitron CST9217 datasheet
 
 [sensorlib-cpp]: https://github.com/lewisxhe/SensorLib/blob/baa3e0b83c256b74d9870a95d96d55595946926c/src/touch/TouchDrvCST92xx.cpp

@@ -91,15 +91,17 @@ where
 
     /// Pulse the reset pin (if any) and wait for the controller to come back up.
     ///
-    /// With the default `NoResetPin` this is just the settle delay SensorLib waits after
-    /// resetting; with a real `RST` pin attached via `.with_reset()`, the pin is pulsed
-    /// low first. The datasheet does not document the minimum low-pulse width, so this
-    /// timing may need tuning for your hardware.
+    /// With the default `NoResetPin` this is just the settle delay; with a real `RST`
+    /// pin attached via `.with_reset()`, the pin is pulsed low first. Timing is from
+    /// the CST9217 datasheet (section 10.5, "上电/复位"): `TRST` (reset pulse width) is
+    /// 0.1 ms typical, and `TRON` (chip reinitialization time after reset) is 100 ms
+    /// typical — the 10 ms low pulse comfortably clears `TRST`, and the 100 ms settle
+    /// after releasing it matches `TRON`.
     pub fn reset(&mut self) {
         let _ = self.rst.set_low();
         self.delay.delay_ms(10_u32);
         let _ = self.rst.set_high();
-        self.delay.delay_ms(30_u32);
+        self.delay.delay_ms(100_u32);
     }
 
     /// Read controller metadata (checkcode, resolution, chip/version) and validate the chip.
