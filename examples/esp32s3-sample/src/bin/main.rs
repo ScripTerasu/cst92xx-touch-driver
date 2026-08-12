@@ -13,6 +13,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Delay, Duration, Timer};
 use esp_hal::Async;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
@@ -55,7 +56,11 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .into_async();
 
-    let driver = CST92xx::new(i2c, Delay);
+    // RST is active-low (see the driver README's wiring section), so idle it high —
+    // the driver's own reset() pulses it low/high on init(), we just own the pin here.
+    let rst = Output::new(peripherals.GPIO11, Level::High, OutputConfig::default());
+
+    let driver = CST92xx::new(i2c, Delay).with_reset(rst);
     spawner.spawn(touch_task(driver).unwrap());
 
     loop {
@@ -69,15 +74,26 @@ async fn main(spawner: Spawner) -> ! {
     clippy::large_stack_frames,
     reason = "clippy sums the whole async state machine (which embassy stores in the static \
     TaskPool, not on the call stack) as if it were the function's stack frame. Verified via \
-    objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 192 \
+    objdump on the built xtensa-esp32s3-none-elf binary: the real `poll()` entry frame is 208 \
     bytes, well under the crate's 1024-byte threshold."
 )]
-async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay>) {
-    // 1. Initialize the driver at task startup
+async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay, Output<'static>>) {
+    // 1. Initialize the driver at task startup (this also pulses the RST pin)
     if let Err(e) = touch_driver.init().await {
         error!("Failed to initialize touch panel: {:?}", e);
         return;
     }
+
+    // 2. Log what init() discovered, so a flashed board tells you what it found
+    // instead of just "it works" — useful when swapping between CST9217/CST9220
+    // parts or chasing a mismatched panel resolution. ChipInfo derives
+    // defmt::Format, so this prints every field (chip_type, resolution,
+    // project_id, fw_version, checksum) without hand-picking any of them.
+    info!(
+        "Touch panel ready: {} -> {}",
+        touch_driver.model_name(),
+        touch_driver.chip_info()
+    );
 
     loop {
         match touch_driver.touches().await {
@@ -92,8 +108,8 @@ async fn touch_task(mut touch_driver: CST92xx<I2c<'static, Async>, Delay>) {
                     // Send coordinates to your GUI (LVGL, Slint, etc.) or gesture logic
                 }
             }
-            Err(_e) => {
-                error!("I2C communication error");
+            Err(e) => {
+                error!("I2C communication error: {:?}", e);
             }
         }
 
