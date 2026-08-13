@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-13
+
+### Added
+
+- CI now builds `examples/waveshare-esp32s3-touch-amoled-1p75` against the Espressif Xtensa toolchain, and runs `cargo-semver-checks` against the last version published on crates.io.
+
 ### Changed
 
+- Unified the async and blocking driver bodies (`init`, `get_attribute`, `set_mode`, `prepare_factory_mode`, `touches`) into a single `src/driver.rs`, generated for each feature via two small local macros. The two files were near-mirror copies of each other before, so a fix like the I2C error propagation one in 0.2.2 had to be applied by hand in both.
+- Replaced the hand-rolled I2C/delay mocks in `tests/async.rs`/`tests/blocking.rs` with `embedded-hal-mock`, a dev-dependency that was already declared but unused.
 - Renamed `examples/esp32s3-sample` to `examples/waveshare-esp32s3-touch-amoled-1p75` — the old name implied it works on any ESP32-S3 board, but its pin assignments are specific to the Waveshare 1.75" Touch AMOLED module (see [Wiring (ESP32-S3)](README.md#wiring-esp32-s3)).
 
 ## [0.2.2] - 2026-08-12
@@ -75,7 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release: async CST92xx driver (`embedded-hal-async`), followed by a blocking counterpart (`embedded-hal` + `DelayNs`), shared register/error/mode types, `defmt` support, and an ESP32-S3 Waveshare AMOLED sample project.
 
-[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.2...HEAD
+[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.3...HEAD
+[0.2.3]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.1.0...0.2.0
