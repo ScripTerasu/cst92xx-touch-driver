@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name = "esp32s3-sample"
+name = "waveshare-esp32s3-touch-amoled-1p75"
 version = "0.1.0"
 authors = ["Sebastian Almendra"]
 license = "MIT"
@@ -10,7 +10,7 @@ readme = "README.md"
 publish = false
 
 [[bin]]
-name = "esp32s3-sample"
+name = "waveshare-esp32s3-touch-amoled-1p75"
 path = "./src/bin/main.rs"
 
 [dependencies]

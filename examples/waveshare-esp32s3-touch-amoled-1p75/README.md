@@ -1,6 +1,6 @@
-# `esp32s3-sample`
+# `waveshare-esp32s3-touch-amoled-1p75`
 
-This subproject (`examples/esp32s3-sample`) started from the `esp-generate` template for the ESP32-S3 (ESP-HAL, Embassy, defmt, and `zed`). We replaced the stock "Hello world" loop with a CST92xx touch demo that runs inside `esp-rtos` and logs touch points via `defmt`.
+This subproject (`examples/waveshare-esp32s3-touch-amoled-1p75`) started from the `esp-generate` template for the ESP32-S3 (ESP-HAL, Embassy, defmt, and `zed`). We replaced the stock "Hello world" loop with a CST92xx touch demo that runs inside `esp-rtos` and logs touch points via `defmt`.
 
 **This example targets the Waveshare ESP32-S3 Touch AMOLED 1.75" board (CST9217) specifically.** Its pin numbers — especially `TP_RESET` — don't carry over to other boards: the [2.16" variant](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-2.16) of this same product line (CST9220) wires `TP_RESET` to GPIO40 instead of GPIO2 (see the driver [README](../../README.md#wiring-esp32-s3) for both schematics). Adapting this example to a different board means re-checking every pin against that board's own schematic, not just swapping the chip ID.
 
@@ -8,7 +8,7 @@ It is **not** a workspace member of the crate at the repository root — it has 
 
 ## What's inside?
 
-- `Cargo.toml`: defines the `esp32s3-sample` binary and pulls in `esp-hal`, `esp-rtos`, `embassy`, `defmt`, and the supporting ecosystem crates, plus `cst92xx` via a `path = "../.."` dependency.
+- `Cargo.toml`: defines the `waveshare-esp32s3-touch-amoled-1p75` binary and pulls in `esp-hal`, `esp-rtos`, `embassy`, `defmt`, and the supporting ecosystem crates, plus `cst92xx` via a `path = "../.."` dependency.
 - `src/bin/main.rs`: brings up the ESP32-S3 clocks, an async I²C bus, the RST pin, and the TOUCH_INT pin, spawns a `touch_task` that initializes the CST92xx driver and reads `touches()` whenever TOUCH_INT toggles, and logs chip attributes and coordinates via `defmt`.
 - `.cargo/`, `.clippy.toml`, `rust-toolchain.toml`, and `build.rs`: boilerplate from `esp-generate` to pin the toolchain and lint rules.
 
@@ -21,7 +21,7 @@ It is **not** a workspace member of the crate at the repository root — it has 
    ```
    This installs the `xtensa-esp` targets and helper tools such as `espflash` and `probe-rs`.
 
-2. From **this directory** (`examples/esp32s3-sample`), build or run the demo:
+2. From **this directory** (`examples/waveshare-esp32s3-touch-amoled-1p75`), build or run the demo:
    ```sh
    cargo build --release
    cargo run --release

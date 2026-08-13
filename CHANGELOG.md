@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed `examples/esp32s3-sample` to `examples/waveshare-esp32s3-touch-amoled-1p75` — the old name implied it works on any ESP32-S3 board, but its pin assignments are specific to the Waveshare 1.75" Touch AMOLED module (see [Wiring (ESP32-S3)](README.md#wiring-esp32-s3)).
+
 ## [0.2.2] - 2026-08-12
 
 ### Fixed
