@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "cst92xx"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "defmt 1.1.1",
  "embedded-hal 1.0.0",
@@ -869,23 +869,6 @@ checksum = "8b4b8c4e4d9f187553ecdb7173edec7b2deb2beea106eedefecdb1654b8ee25a"
 dependencies = [
  "defmt 1.1.1",
  "vcell",
-]
-
-[[package]]
-name = "esp32s3-sample"
-version = "0.1.0"
-dependencies = [
- "critical-section",
- "cst92xx",
- "defmt 1.1.1",
- "embassy-executor",
- "embassy-time",
- "embedded-hal-async",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "esp-rtos",
- "static_cell",
 ]
 
 [[package]]
@@ -1671,6 +1654,23 @@ name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
+
+[[package]]
+name = "waveshare-esp32s3-touch-amoled-1p75"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "cst92xx",
+ "defmt 1.1.1",
+ "embassy-executor",
+ "embassy-time",
+ "embedded-hal-async",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "esp-rtos",
+ "static_cell",
+]
 
 [[package]]
 name = "winapi-util"

@@ -1,23 +1,8 @@
-use embedded_hal::delay::DelayNs;
+use embedded_hal::i2c::ErrorKind;
+use embedded_hal_mock::eh1::delay::NoopDelay;
+use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
 
 use cst92xx::{CST92xx, Error, RunMode, registers};
-
-/// A minimal fallible I2C error, so tests can simulate a real bus failure
-/// instead of only ever succeeding (`Infallible` can never construct an `Err`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MockI2cError;
-
-impl embedded_hal::i2c::Error for MockI2cError {
-    fn kind(&self) -> embedded_hal::i2c::ErrorKind {
-        embedded_hal::i2c::ErrorKind::Other
-    }
-}
-
-struct DummyDelay;
-
-impl DelayNs for DummyDelay {
-    fn delay_ns(&mut self, _ns: u32) {}
-}
 
 const READ_LEN: usize = registers::MAX_FINGER_NUM * 5 + 5;
 const REG_READ_BYTES: [u8; 2] = registers::REG_READ.to_be_bytes();
@@ -77,150 +62,33 @@ const FACTORY_STATUS_READY: [u8; 1] = [0x14];
 // status[1] == REG_FACTORY_READY's low byte (0x19): the factory command was accepted.
 const FACTORY_MODE_CONFIRMED: [u8; 2] = [0, 0x19];
 
-#[derive(Clone, Copy, Debug)]
-enum Expected<'a> {
-    Write {
-        address: u8,
-        data: &'a [u8],
-    },
-    WriteRead {
-        address: u8,
-        write: &'a [u8],
-        read: &'a [u8],
-    },
-    /// A write that fails with `MockI2cError`, to simulate a real bus fault.
-    WriteErr {
-        address: u8,
-    },
-}
-
-struct FakeI2c<'a> {
-    expected: &'a [Expected<'a>],
-    position: usize,
-}
-
-impl<'a> FakeI2c<'a> {
-    fn new(expected: &'a [Expected<'a>]) -> Self {
-        Self {
-            expected,
-            position: 0,
-        }
-    }
-
-    fn next(&mut self) -> &Expected<'a> {
-        let expected = self.expected.get(self.position).unwrap_or_else(|| {
-            panic!(
-                "received more I2C operations than expected (overran at index {})",
-                self.position
-            )
-        });
-        self.position += 1;
-        expected
-    }
-
-    fn assert_done(&self) {
-        assert_eq!(
-            self.position,
-            self.expected.len(),
-            "not all expected I2C operations were consumed"
-        );
-    }
-}
-
-fn slice_eq(expected: &[u8], actual: &[u8]) -> bool {
-    expected.len() == actual.len()
-        && expected
-            .iter()
-            .zip(actual.iter())
-            .all(|(expected_byte, actual_byte)| expected_byte == actual_byte)
-}
-
-impl embedded_hal::i2c::ErrorType for FakeI2c<'_> {
-    type Error = MockI2cError;
-}
-
-impl embedded_hal::i2c::I2c for FakeI2c<'_> {
-    fn read(&mut self, _address: u8, _read: &mut [u8]) -> Result<(), Self::Error> {
-        unreachable!("read() is not invoked by the driver");
-    }
-
-    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-        match self.next() {
-            Expected::Write {
-                address: expected_address,
-                data,
-            } if *expected_address == address && slice_eq(data, write) => Ok(()),
-            Expected::WriteErr {
-                address: expected_address,
-            } if *expected_address == address => Err(MockI2cError),
-            other => panic!("unexpected write operation: {other:?}"),
-        }
-    }
-
-    fn write_read(
-        &mut self,
-        address: u8,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        match self.next() {
-            Expected::WriteRead {
-                address: expected_address,
-                write: expected_write,
-                read: expected_read,
-            } if *expected_address == address && slice_eq(expected_write, write) => {
-                assert_eq!(
-                    read.len(),
-                    expected_read.len(),
-                    "read buffer length mismatch"
-                );
-                read.copy_from_slice(expected_read);
-                Ok(())
-            }
-            other => panic!("unexpected write_read operation: {other:?}"),
-        }
-    }
-
-    fn transaction(
-        &mut self,
-        _address: u8,
-        _operations: &mut [embedded_hal::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        unreachable!("transaction() is not invoked by the driver");
-    }
-}
+const ADDR: u8 = registers::CST92XX_SLAVE_ADDRESS;
 
 #[test]
 fn touches_empty_report_returns_no_points() {
-    let expectations = [Expected::WriteRead {
-        address: registers::CST92XX_SLAVE_ADDRESS,
-        write: &REG_READ_BYTES,
-        read: &READ_REPORT_EMPTY,
-    }];
+    let expectations = [I2cTransaction::write_read(
+        ADDR,
+        REG_READ_BYTES.to_vec(),
+        READ_REPORT_EMPTY.to_vec(),
+    )];
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let touches = driver.touches().unwrap();
     assert!(touches.iter().all(|point| point.is_none()));
 
-    let (i2c, _, _) = driver.into_inner();
-    i2c.assert_done();
+    i2c.done();
 }
 
 #[test]
 fn touches_parses_single_point() {
     let expectations = [
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_READ_BYTES,
-            read: &READ_REPORT_POINT,
-        },
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &ACK_COMMAND,
-        },
+        I2cTransaction::write_read(ADDR, REG_READ_BYTES.to_vec(), READ_REPORT_POINT.to_vec()),
+        I2cTransaction::write(ADDR, ACK_COMMAND.to_vec()),
     ];
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let touches = driver.touches().unwrap();
     let point = touches[0].unwrap();
     assert_eq!(point.track_id, 1);
@@ -228,44 +96,37 @@ fn touches_parses_single_point() {
     assert_eq!(point.y, ((0x14u16) << 4) | 0x07);
     assert!(touches[1].is_none());
 
-    let (i2c, _, _) = driver.into_inner();
-    i2c.assert_done();
+    i2c.done();
 }
 
-fn attribute_expectations(fw_version_and_checksum: &'static [u8; 8]) -> [Expected<'static>; 5] {
+fn attribute_expectations(fw_version_and_checksum: &'static [u8; 8]) -> [I2cTransaction; 5] {
     [
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_DEBUG_MODE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_CHECK_CODE_BYTES,
-            read: &CHECK_CODE_VALID,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_RESOLUTION_BYTES,
-            read: &RESOLUTION_VALID,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_CHIP_TYPE_BYTES,
-            read: &CHIP_TYPE_VALID,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_FW_VERSION_BYTES,
-            read: fw_version_and_checksum,
-        },
+        I2cTransaction::write(ADDR, REG_DEBUG_MODE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_CHECK_CODE_BYTES.to_vec(),
+            CHECK_CODE_VALID.to_vec(),
+        ),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_RESOLUTION_BYTES.to_vec(),
+            RESOLUTION_VALID.to_vec(),
+        ),
+        I2cTransaction::write_read(ADDR, REG_CHIP_TYPE_BYTES.to_vec(), CHIP_TYPE_VALID.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_FW_VERSION_BYTES.to_vec(),
+            fw_version_and_checksum.to_vec(),
+        ),
     ]
 }
 
 #[test]
 fn get_attribute_populates_chip_info_on_success() {
     let expectations = attribute_expectations(&FW_VERSION_VALID);
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     driver.get_attribute().unwrap();
 
     let info = driver.chip_info();
@@ -277,166 +138,141 @@ fn get_attribute_populates_chip_info_on_success() {
     assert_eq!(info.checksum, 0xAABB_CCDD);
     assert_eq!(driver.model_name(), "CST9217");
 
-    let (i2c, _, _) = driver.into_inner();
-    i2c.assert_done();
+    i2c.done();
 }
 
 #[test]
 fn get_attribute_rejects_missing_firmware() {
     let expectations = attribute_expectations(&FW_VERSION_NO_FIRMWARE);
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.get_attribute();
     assert!(matches!(result, Err(Error::InvalidFirmware)));
+
+    i2c.done();
 }
 
 #[test]
 fn get_attribute_rejects_bad_checkcode() {
     let mut expectations = attribute_expectations(&FW_VERSION_VALID);
-    expectations[1] = Expected::WriteRead {
-        address: registers::CST92XX_SLAVE_ADDRESS,
-        write: &REG_CHECK_CODE_BYTES,
-        read: &CHECK_CODE_INVALID,
-    };
+    expectations[1] = I2cTransaction::write_read(
+        ADDR,
+        REG_CHECK_CODE_BYTES.to_vec(),
+        CHECK_CODE_INVALID.to_vec(),
+    );
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.get_attribute();
     assert!(matches!(result, Err(Error::InvalidCheckCode)));
+
+    i2c.done();
 }
 
 #[test]
 fn get_attribute_rejects_unknown_chip_type() {
     let mut expectations = attribute_expectations(&FW_VERSION_VALID);
-    expectations[3] = Expected::WriteRead {
-        address: registers::CST92XX_SLAVE_ADDRESS,
-        write: &REG_CHIP_TYPE_BYTES,
-        read: &CHIP_TYPE_UNKNOWN,
-    };
+    expectations[3] = I2cTransaction::write_read(
+        ADDR,
+        REG_CHIP_TYPE_BYTES.to_vec(),
+        CHIP_TYPE_UNKNOWN.to_vec(),
+    );
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.get_attribute();
     assert!(matches!(result, Err(Error::InvalidChipType(0x1234))));
+
+    i2c.done();
 }
 
 #[test]
 fn set_mode_returns_not_ready_when_handshake_never_acks() {
     let handshake_round = [
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_MODE_STATUS_BYTES,
-            read: &MODE_STATUS_NOT_READY,
-        },
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_MODE_STATUS_BYTES.to_vec(),
+            MODE_STATUS_NOT_READY.to_vec(),
+        ),
     ];
-    let expectations = [
-        handshake_round[0],
-        handshake_round[1],
-        handshake_round[2],
-        handshake_round[0],
-        handshake_round[1],
-        handshake_round[2],
-        handshake_round[0],
-        handshake_round[1],
-        handshake_round[2],
-    ];
+    let expectations: Vec<_> = handshake_round.iter().cloned().cycle().take(9).collect();
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.set_mode(RunMode::Normal);
     assert!(matches!(result, Err(Error::NotReady)));
 
-    let (i2c, _, _) = driver.into_inner();
-    i2c.assert_done();
+    i2c.done();
 }
 
 #[test]
 fn set_mode_factory_succeeds_after_polling_retries() {
     let expectations = [
         // Outer mode handshake succeeds on the first attempt.
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_MODE_STATUS_BYTES,
-            read: &MODE_HANDSHAKE_READY,
-        },
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_MODE_STATUS_BYTES.to_vec(),
+            MODE_HANDSHAKE_READY.to_vec(),
+        ),
         // prepare_factory_mode: not ready on the first poll...
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_FACTORY_MODE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_FACTORY_STATUS_BYTES,
-            read: &FACTORY_STATUS_NOT_READY,
-        },
+        I2cTransaction::write(ADDR, REG_FACTORY_MODE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_FACTORY_STATUS_BYTES.to_vec(),
+            FACTORY_STATUS_NOT_READY.to_vec(),
+        ),
         // ...ready on the second.
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_FACTORY_MODE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_FACTORY_STATUS_BYTES,
-            read: &FACTORY_STATUS_READY,
-        },
+        I2cTransaction::write(ADDR, REG_FACTORY_MODE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_FACTORY_STATUS_BYTES.to_vec(),
+            FACTORY_STATUS_READY.to_vec(),
+        ),
         // set_mode writes the factory-ready command and confirms it.
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_FACTORY_READY_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_MODE_STATUS_BYTES,
-            read: &FACTORY_MODE_CONFIRMED,
-        },
+        I2cTransaction::write(ADDR, REG_FACTORY_READY_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_MODE_STATUS_BYTES.to_vec(),
+            FACTORY_MODE_CONFIRMED.to_vec(),
+        ),
     ];
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     driver.set_mode(RunMode::Factory).unwrap();
 
-    let (i2c, _, _) = driver.into_inner();
-    i2c.assert_done();
+    i2c.done();
 }
 
 #[test]
 fn set_mode_factory_propagates_i2c_error_when_polling_never_succeeds() {
     let mut expectations = vec![
         // Outer mode handshake succeeds on the first attempt.
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::Write {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            data: &REG_MODE_HANDSHAKE_BYTES,
-        },
-        Expected::WriteRead {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-            write: &REG_MODE_STATUS_BYTES,
-            read: &MODE_HANDSHAKE_READY,
-        },
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write(ADDR, REG_MODE_HANDSHAKE_BYTES.to_vec()),
+        I2cTransaction::write_read(
+            ADDR,
+            REG_MODE_STATUS_BYTES.to_vec(),
+            MODE_HANDSHAKE_READY.to_vec(),
+        ),
     ];
     // prepare_factory_mode retries 10 times; every write to REG_FACTORY_MODE fails.
     for _ in 0..10 {
-        expectations.push(Expected::WriteErr {
-            address: registers::CST92XX_SLAVE_ADDRESS,
-        });
+        expectations.push(
+            I2cTransaction::write(ADDR, REG_FACTORY_MODE_BYTES.to_vec())
+                .with_error(ErrorKind::Other),
+        );
     }
+    let mut i2c = I2cMock::new(&expectations);
 
-    let mut driver = CST92xx::new(FakeI2c::new(&expectations), DummyDelay);
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.set_mode(RunMode::Factory);
-    assert!(matches!(result, Err(Error::I2C(MockI2cError))));
+    assert!(matches!(result, Err(Error::I2C(ErrorKind::Other))));
+
+    i2c.done();
 }

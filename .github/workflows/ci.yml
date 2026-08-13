@@ -61,6 +61,14 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  semver:
+    name: semver-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+
   mutually-exclusive-features:
     name: async + blocking must fail to compile
     runs-on: ubuntu-latest
@@ -83,6 +91,16 @@ jobs:
       - run: cargo build --no-default-features --features async
       - run: cargo build --no-default-features --features blocking
 
-  # The examples/esp32s3-sample crate needs the Espressif Xtensa toolchain
-  # (espup), which isn't wired up here yet — build it manually before
-  # relying on it, or add a job with the esp-rs/xtensa-toolchain action.
+  esp32s3-example:
+    name: Build examples/waveshare-esp32s3-touch-amoled-1p75
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          default: true
+          ldproxy: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: cargo build
+        working-directory: examples/waveshare-esp32s3-touch-amoled-1p75
