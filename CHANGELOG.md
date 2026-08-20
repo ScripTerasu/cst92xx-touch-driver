@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-19
+
+### Fixed
+
+- CI's `semver-checks` job failed on every push: `cargo-semver-checks-action` defaults to heuristically enabling every non-nightly feature it finds, which combines `async` and `blocking` — a combination `src/lib.rs` deliberately makes a `compile_error!`. Pinned it to `feature-group: default-features` so it checks the crate's actual default public surface instead.
+
 ## [0.2.3] - 2026-08-13
 
 ### Added
@@ -83,7 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release: async CST92xx driver (`embedded-hal-async`), followed by a blocking counterpart (`embedded-hal` + `DelayNs`), shared register/error/mode types, `defmt` support, and an ESP32-S3 Waveshare AMOLED sample project.
 
-[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.3...HEAD
+[Unreleased]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.4...HEAD
+[0.2.4]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.3...0.2.4
 [0.2.3]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/ScripTerasu/cst92xx-touch-driver/compare/0.2.0...0.2.1

@@ -68,6 +68,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          # Without this, the action heuristically enables every non-nightly
+          # feature it finds — including both `async` and `blocking` at once,
+          # which this crate's lib.rs deliberately makes a compile_error!
+          # (see the mutually-exclusive-features job below). Check against
+          # the crate's actual default public surface instead.
+          feature-group: default-features
 
   mutually-exclusive-features:
     name: async + blocking must fail to compile
