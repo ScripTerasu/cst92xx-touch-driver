@@ -2,22 +2,51 @@ schema: spec-driven
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  cst92xx: a `no_std` Rust driver crate for the CST92xx family of capacitive
+  touch controllers (CST9217, CST9220), published on crates.io. Ported from
+  SensorLib's C++ TouchDrvCST92xx driver to idiomatic embedded-hal.
+
+  Feature flags `async` (default, embedded-hal-async) and `blocking`
+  (embedded-hal + DelayNs) are mutually exclusive — enabling both is a
+  compile_error! by design (see src/lib.rs). Any tooling or CI step that
+  builds/docs "all features" must exclude this combination explicitly, or
+  it will fail (this has bitten cargo-semver-checks in CI before).
+
+  The driver body (init/get_attribute/set_mode/prepare_factory_mode/touches)
+  lives once in src/driver.rs and is generated for each feature via two
+  small local macros (maybe_async!/maybe_await!), not duplicated across
+  separate async.rs/blocking.rs files — keep it that way.
+
+  Tests use `embedded-hal-mock` (Mock/Transaction/NoopDelay) — don't
+  hand-roll I2C or delay mocks.
+
+  examples/ are separate crates (own Cargo.lock/toolchain, not workspace
+  members), each targeting one specific board (pin assignments are
+  board-specific, not chip-family-generic), named after the board rather
+  than the chip family — e.g. examples/waveshare-esp32s3-touch-amoled-1p75.
+
+  Git flow: work happens on `develop`; `main` only advances via an explicit
+  `git merge --no-ff develop` at release time (never a fast-forward or
+  rebase). Releases follow a "Prepare X.Y.Z release" commit that bumps the
+  version in Cargo.toml/Cargo.lock and moves CHANGELOG.md's `[Unreleased]`
+  section into a dated `## [X.Y.Z] - date` section (Keep a Changelog
+  format, including entries for internal refactors, not just public API
+  changes), then an annotated git tag `X.Y.Z` on that commit, pushed
+  alongside both branches. `cargo publish` to crates.io is a manual step
+  the maintainer runs themselves — no crates.io credentials are available
+  in the dev/CI environment.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - Note whether a change affects the `async` feature, the `blocking`
+      feature, or both — they share src/driver.rs but are compiled and
+      tested separately.
+  tasks:
+    - Include a task to add a CHANGELOG.md entry under `[Unreleased]` for
+      any user-visible or notable internal change.
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
