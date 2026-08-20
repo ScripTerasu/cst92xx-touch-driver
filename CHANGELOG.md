@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- CI's `semver-checks` job failed on every push: `cargo-semver-checks-action` defaults to heuristically enabling every non-nightly feature it finds, which combines `async` and `blocking` — a combination `src/lib.rs` deliberately makes a `compile_error!`. Pinned it to `feature-group: default-features` so it checks the crate's actual default public surface instead.
+
 ## [0.2.3] - 2026-08-13
 
 ### Added
