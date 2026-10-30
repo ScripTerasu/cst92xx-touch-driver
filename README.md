@@ -76,11 +76,12 @@ where
 
 | Item | Description |
 | --- | --- |
-| `CST92xx<I2C, Delay>` (feature `async`) | Async driver over `embedded-hal-async::i2c::I2c` + `embedded-hal-async::delay::DelayNs`. Provides `init`, `touches`, `sleep`, `set_mode`, `chip_info`, `model_name`, `with_reset`, and `with_config`. |
+| `CST92xx<I2C, Delay>` (feature `async`) | Async driver over `embedded-hal-async::i2c::I2c` + `embedded-hal-async::delay::DelayNs`. Provides `init`, `touches`, `read_event`, `sleep`, `set_mode`, `chip_info`, `model_name`, `with_reset`, and `with_config`. |
 | `CST92xx<I2C, Delay>` (feature `blocking`) | Sync counterpart over `embedded_hal::i2c::I2c` + `embedded_hal::delay::DelayNs`. Mirrors the async API so business logic reads the same between runtimes. |
 | `ChipInfo` | Chip metadata discovered by `init()`/`get_attribute()` — chip type, panel resolution, project ID, firmware version, checksum. Read-only; fetch it with `driver.chip_info()`. |
 | `Point` | Touch descriptor returned by `touches()`, already passed through `TouchConfig::transform()`. Includes `track_id`, `(x, y)`, and `area` (currently always `0` — the controller report this driver decodes doesn't carry contact area). |
 | `TouchConfig` / `Orientation` / `DisplayMapping` | Optional coordinate transform (axis swap, mirroring, scaling to a target display resolution) applied to every `Point` from `touches()`. Set it via `driver.with_config(...)`; see `TouchConfig::with_target_resolution`. |
+| `TouchEvent` | Result of `read_event()`: `Pressed(points)`, `Released` (the controller reported the finger left) or `NoNewData` (report already acknowledged, invalid or empty). Use it for press/release logic, where an empty `touches()` result is ambiguous. |
 | `RunMode` | Enum describing every controller mode (normal, debug, factory, etc.) for `set_mode`. Several variants aren't implemented by SensorLib's reference `setMode()` and are mapped here by register-naming convention only — see the per-variant docs before relying on them. |
 | `NoResetPin` | Default `RST` type when no hardware reset pin is attached (via `.with_reset(pin)`). `reset()` still runs its settle delay, just without toggling anything. |
 | `Error<E>` | Driver error type, generic over the I²C error type `E`. |

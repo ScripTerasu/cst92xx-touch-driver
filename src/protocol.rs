@@ -7,7 +7,7 @@
 //! driver implementations, which is exactly what happened with the reset
 //! pin before this module existed.
 
-use crate::info::{ChipInfo, Point};
+use crate::info::{ChipInfo, Point, TouchEvent};
 use crate::mode::RunMode;
 use crate::registers::{
     CST92XX_ACK, CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM, REG_BASE_LINE_MODE,
@@ -64,6 +64,28 @@ pub(crate) fn mode_bytes(mode: RunMode) -> ModeBytes {
         RunMode::FactoryLowDrv => ModeBytes::Fixed(REG_FACTORY_LOW_DRV.to_be_bytes()),
         RunMode::FactoryShort => ModeBytes::Fixed(REG_FACTORY_SHORT.to_be_bytes()),
         RunMode::LpScan => ModeBytes::Fixed(REG_BASE_LINE_MODE.to_be_bytes()),
+    }
+}
+
+/// Classify a `REG_READ` report for `read_event()`.
+///
+/// Same preconditions as [`decode_touch_report`]: the caller already handled
+/// the all-zero buffer and sent the acknowledgment. A buffer whose first byte
+/// is the ACK marker, or whose device-ACK byte is missing, holds no new
+/// report. A valid report with no pressed point is a release.
+pub(crate) fn classify_touch_report(
+    buffer: &[u8],
+    config: &TouchConfig,
+    panel_resolution: (u16, u16),
+) -> TouchEvent {
+    if buffer[0] == CST92XX_ACK || buffer[6] != CST92XX_ACK {
+        return TouchEvent::NoNewData;
+    }
+    let points = decode_touch_report(buffer, config, panel_resolution);
+    if points[0].is_some() {
+        TouchEvent::Pressed(points)
+    } else {
+        TouchEvent::Released
     }
 }
 

@@ -23,7 +23,7 @@ use embedded_hal_async::i2c::I2c;
 use embedded_hal::digital::OutputPin;
 
 use crate::error::Error;
-use crate::info::{ChipInfo, Point};
+use crate::info::{ChipInfo, Point, TouchEvent};
 use crate::mode::RunMode;
 use crate::protocol::{self, AttributeError, ModeBytes};
 use crate::registers::{
@@ -33,6 +33,9 @@ use crate::registers::{
 };
 use crate::reset_pin::NoResetPin;
 use crate::types::TouchConfig;
+
+/// Length of a `REG_READ` touch report: 5 bytes per finger plus 5.
+const REPORT_LEN: usize = MAX_FINGER_NUM * 5 + 5;
 
 /// Turns a `fn`/`pub fn` item written below into `async fn`/`pub async fn`.
 #[cfg(feature = "async")]
@@ -394,20 +397,10 @@ where
         /// Performs the same optimized SensorLib path that transfers 15 bytes instead of 30,
         /// sends the acknowledgment, and filters out inactive slots before returning the touch array.
         pub fn touches(&mut self) -> Result<[Option<Point>; MAX_FINGER_NUM], Error<E>> {
-            let mut buffer = [0u8; MAX_FINGER_NUM * 5 + 5];
-            let reg_bytes = REG_READ.to_be_bytes();
-
-            maybe_await!(self.write_read(&reg_bytes, &mut buffer))?;
-
-            if !buffer.iter().any(|&x| x != 0) {
+            let mut buffer = [0u8; REPORT_LEN];
+            if !maybe_await!(self.read_report(&mut buffer))? {
                 return Ok([None; MAX_FINGER_NUM]);
             }
-
-            let mut write_buffer = [0u8; 3];
-            write_buffer[0] = reg_bytes[0];
-            write_buffer[1] = reg_bytes[1];
-            write_buffer[2] = CST92XX_ACK;
-            maybe_await!(self.write(&write_buffer))?;
 
             let panel_resolution = (self.chip_info.resolution_x, self.chip_info.resolution_y);
             Ok(protocol::decode_touch_report(
@@ -415,6 +408,51 @@ where
                 &self.config,
                 panel_resolution,
             ))
+        }
+    }
+
+    maybe_async! {
+        /// Read the latest touch report and tell a press, a release and "nothing
+        /// new" apart (see [`TouchEvent`]).
+        ///
+        /// Uses the same 15-byte read and acknowledgment as `touches()`. Prefer
+        /// this over `touches()` for press/release logic: an empty `touches()`
+        /// result can mean any of the three.
+        pub fn read_event(&mut self) -> Result<TouchEvent, Error<E>> {
+            let mut buffer = [0u8; REPORT_LEN];
+            if !maybe_await!(self.read_report(&mut buffer))? {
+                return Ok(TouchEvent::NoNewData);
+            }
+
+            let panel_resolution = (self.chip_info.resolution_x, self.chip_info.resolution_y);
+            Ok(protocol::classify_touch_report(
+                &buffer,
+                &self.config,
+                panel_resolution,
+            ))
+        }
+    }
+
+    maybe_async! {
+        /// Read `REG_READ` into `buffer` and acknowledge it.
+        ///
+        /// Returns `false` for an all-zero buffer, which holds nothing to decode
+        /// and is not acknowledged.
+        fn read_report(&mut self, buffer: &mut [u8; REPORT_LEN]) -> Result<bool, Error<E>> {
+            let reg_bytes = REG_READ.to_be_bytes();
+
+            maybe_await!(self.write_read(&reg_bytes, buffer))?;
+
+            if !buffer.iter().any(|&x| x != 0) {
+                return Ok(false);
+            }
+
+            let mut write_buffer = [0u8; 3];
+            write_buffer[0] = reg_bytes[0];
+            write_buffer[1] = reg_bytes[1];
+            write_buffer[2] = CST92XX_ACK;
+            maybe_await!(self.write(&write_buffer))?;
+            Ok(true)
         }
     }
 }

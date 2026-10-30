@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `read_event()` and the `TouchEvent` enum (`Pressed(points)`, `Released`, `NoNewData`), for both drivers. `touches()` returns the same empty array for a lifted finger, an already-acknowledged report and an invalid frame, so press/release logic built on it could not tell "finger lifted" from "nothing new". Measured on a Waveshare 1.75" board: a resting finger keeps returning the pressed report, lifting it gives one report with first byte `0x00`, and later reads start with the ACK marker `0xAB`. `read_event()` keeps those apart; `touches()` is unchanged.
+
+### Changed
+
+- `touches()` and `read_event()` share a private `read_report()` helper for the `REG_READ` read and acknowledgment.
+
 ## [0.2.4] - 2026-08-19
 
 ### Fixed

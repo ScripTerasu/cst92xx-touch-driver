@@ -2,7 +2,7 @@ use embedded_hal::i2c::ErrorKind;
 use embedded_hal_mock::eh1::delay::NoopDelay;
 use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
 
-use cst92xx::{CST92xx, Error, RunMode, registers};
+use cst92xx::{CST92xx, Error, RunMode, TouchEvent, registers};
 
 const READ_LEN: usize = registers::MAX_FINGER_NUM * 5 + 5;
 const REG_READ_BYTES: [u8; 2] = registers::REG_READ.to_be_bytes();
@@ -23,6 +23,43 @@ const READ_REPORT_POINT: [u8; READ_LEN] = [
     0,
     0,
     0,
+];
+// Captured on a Waveshare 1.75" board: the report right after lifting a
+// finger (event 0, last position, device ACK present)...
+const READ_REPORT_RELEASE: [u8; READ_LEN] = [
+    0x00,
+    0x04,
+    0x0E,
+    0x6B,
+    0,
+    1,
+    registers::CST92XX_ACK,
+    0,
+    0,
+    0,
+    0x3C,
+    0x4A,
+    0x09,
+    0x07,
+    0x09,
+];
+// ...and every read after it, once that report was acknowledged.
+const READ_REPORT_ACKED: [u8; READ_LEN] = [
+    registers::CST92XX_ACK,
+    0x04,
+    0x0E,
+    0x6B,
+    0,
+    1,
+    registers::CST92XX_ACK,
+    0,
+    0,
+    0,
+    0x3C,
+    0x4A,
+    0x09,
+    0x07,
+    0x09,
 ];
 const ACK_COMMAND: [u8; 3] = [REG_READ_BYTES[0], REG_READ_BYTES[1], registers::CST92XX_ACK];
 
@@ -273,6 +310,86 @@ fn set_mode_factory_propagates_i2c_error_when_polling_never_succeeds() {
     let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
     let result = driver.set_mode(RunMode::Factory);
     assert!(matches!(result, Err(Error::I2C(ErrorKind::Other))));
+
+    i2c.done();
+}
+
+#[test]
+fn read_event_reports_press() {
+    let expectations = [
+        I2cTransaction::write_read(ADDR, REG_READ_BYTES.to_vec(), READ_REPORT_POINT.to_vec()),
+        I2cTransaction::write(ADDR, ACK_COMMAND.to_vec()),
+    ];
+    let mut i2c = I2cMock::new(&expectations);
+
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
+    let event = driver.read_event().unwrap();
+    match event {
+        TouchEvent::Pressed(points) => {
+            let point = points[0].unwrap();
+            assert_eq!(point.track_id, 1);
+            assert_eq!(point.x, ((0x0Au16) << 4) | 0x05);
+        }
+        other => panic!("expected Pressed, got {other:?}"),
+    }
+
+    i2c.done();
+}
+
+#[test]
+fn read_event_reports_release() {
+    let expectations = [
+        I2cTransaction::write_read(ADDR, REG_READ_BYTES.to_vec(), READ_REPORT_RELEASE.to_vec()),
+        I2cTransaction::write(ADDR, ACK_COMMAND.to_vec()),
+    ];
+    let mut i2c = I2cMock::new(&expectations);
+
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
+    assert_eq!(driver.read_event().unwrap(), TouchEvent::Released);
+
+    i2c.done();
+}
+
+#[test]
+fn read_event_acked_report_is_no_new_data() {
+    let expectations = [
+        I2cTransaction::write_read(ADDR, REG_READ_BYTES.to_vec(), READ_REPORT_ACKED.to_vec()),
+        I2cTransaction::write(ADDR, ACK_COMMAND.to_vec()),
+    ];
+    let mut i2c = I2cMock::new(&expectations);
+
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
+    assert_eq!(driver.read_event().unwrap(), TouchEvent::NoNewData);
+
+    i2c.done();
+}
+
+#[test]
+fn read_event_empty_buffer_is_no_new_data_without_ack() {
+    let expectations = [I2cTransaction::write_read(
+        ADDR,
+        REG_READ_BYTES.to_vec(),
+        READ_REPORT_EMPTY.to_vec(),
+    )];
+    let mut i2c = I2cMock::new(&expectations);
+
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
+    assert_eq!(driver.read_event().unwrap(), TouchEvent::NoNewData);
+
+    i2c.done();
+}
+
+#[test]
+fn touches_release_report_returns_no_points() {
+    let expectations = [
+        I2cTransaction::write_read(ADDR, REG_READ_BYTES.to_vec(), READ_REPORT_RELEASE.to_vec()),
+        I2cTransaction::write(ADDR, ACK_COMMAND.to_vec()),
+    ];
+    let mut i2c = I2cMock::new(&expectations);
+
+    let mut driver = CST92xx::new(i2c.clone(), NoopDelay::new());
+    let touches = driver.touches().unwrap();
+    assert!(touches.iter().all(|point| point.is_none()));
 
     i2c.done();
 }

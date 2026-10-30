@@ -1,4 +1,4 @@
-use crate::registers::{CST9217_CHIP_ID, CST9220_CHIP_ID};
+use crate::registers::{CST9217_CHIP_ID, CST9220_CHIP_ID, MAX_FINGER_NUM};
 
 /// A detected touch point, already transformed according to `TouchConfig`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -8,6 +8,28 @@ pub struct Point {
     pub x: u16,
     pub y: u16,
     pub area: u16,
+}
+
+/// What one `read_event()` call found in the controller's touch report.
+///
+/// `touches()` returns the same empty array for "the finger was lifted",
+/// "nothing new since the last read" and "invalid frame". That is fine for
+/// drawing, but not for press/release logic: on a Waveshare 1.75" board a
+/// finger resting on the panel keeps returning the pressed report, lifting
+/// it produces one release report (first byte `0x00`), and after that every
+/// read returns the acknowledged marker (`0xAB`) until the next touch. This
+/// enum keeps those cases apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TouchEvent {
+    /// At least one finger is on the panel. Same array `touches()` returns.
+    Pressed([Option<Point>; MAX_FINGER_NUM]),
+    /// The controller reported that the finger(s) left the panel (or a
+    /// valid report with no active point, e.g. the cover-screen gesture).
+    Released,
+    /// No new report: the last one was already acknowledged, the frame was
+    /// not valid, or the buffer was all zeros.
+    NoNewData,
 }
 
 /// Chip metadata, discovered and validated by `get_attribute()`.
